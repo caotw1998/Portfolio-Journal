@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f4efe6;
+  --foreground: #1f2520;
+  --muted: #e8dfcf;
+  --muted-foreground: #5e675d;
+  --card: #fffdf8;
+  --border: #d7c8af;
+  --accent: #2f5d50;
+  --accent-foreground: #f6f1e8;
+  --warm-highlight: #c98352;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-card: var(--card);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --font-sans: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  --font-mono: "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #171c18;
+    --foreground: #f4efe6;
+    --muted: #232a25;
+    --muted-foreground: #b9b4a8;
+    --card: #1d231f;
+    --border: #384138;
+    --accent: #8eb8aa;
+    --accent-foreground: #152019;
+    --warm-highlight: #e0a06b;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--background);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  background-image:
+    linear-gradient(rgba(47, 93, 80, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(47, 93, 80, 0.025) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}

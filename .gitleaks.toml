@@ -1,0 +1,10 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Documented synthetic deployment placeholders"
+regexTarget = "match"
+regexes = [
+  '''replace_with_64_hex_characters''',
+  '''0123456789abcdef0123456789abcdef''',
+]

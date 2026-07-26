@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Portfolio Journal PostgreSQL backup every day
+
+[Timer]
+OnCalendar=*-*-* 02:00:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=portfolio-journal-postgres-backup.service
+
+[Install]
+WantedBy=timers.target
