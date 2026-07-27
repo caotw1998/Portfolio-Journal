@@ -42,7 +42,7 @@ describe("public release gate", () => {
     const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
     const playwright = readFileSync("playwright.config.ts", "utf8");
     expect(playwright).toContain("retries: process.env.CI ? 1 : 0");
-    expect(playwright).toContain("timeout: process.env.CI ? 60_000 : 30_000");
+    expect(playwright).toContain("timeout: process.env.CI ? 120_000 : 30_000");
     expect(playwright).toContain('trace: "retain-on-failure"');
     expect(playwright).toContain('screenshot: "only-on-failure"');
     expect(workflow).toContain("if: failure()");
