@@ -32,9 +32,20 @@ describe("public release gate", () => {
     expect(workflows).not.toMatch(/uses:\s+[^\s]+@v\d+/);
     expect(workflows).toMatch(/actions\/checkout@[a-f0-9]{40}/);
     expect(workflows).toMatch(/github\/codeql-action\/analyze@[a-f0-9]{40}/);
+    expect(workflows).toMatch(/actions\/upload-artifact@[a-f0-9]{40}/);
     const externalImageLines = dockerSources.split("\n").filter((line) => /(?:FROM|image:)\s+(?:node|postgres):/.test(line));
     expect(externalImageLines.every((line) => /@sha256:[a-f0-9]{64}/.test(line))).toBe(true);
     expect(dockerSources.match(/@sha256:[a-f0-9]{64}/g)?.length).toBeGreaterThanOrEqual(3);
+  });
+
+  test("retains browser diagnostics and retries a failed E2E test once in CI", () => {
+    const workflow = readFileSync(".github/workflows/ci.yml", "utf8");
+    const playwright = readFileSync("playwright.config.ts", "utf8");
+    expect(playwright).toContain("retries: process.env.CI ? 1 : 0");
+    expect(playwright).toContain('trace: "retain-on-failure"');
+    expect(playwright).toContain('screenshot: "only-on-failure"');
+    expect(workflow).toContain("if: failure()");
+    expect(workflow).toContain("path: test-results");
   });
 
   test("keeps secret-scan exceptions limited to documented synthetic values", () => {

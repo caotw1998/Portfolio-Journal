@@ -50,6 +50,14 @@ jobs:
       - run: pnpm exec tsc --noEmit
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
+      - name: Upload Playwright diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-test-results
+          path: test-results
+          if-no-files-found: warn
+          retention-days: 7
       - run: pnpm build
 
   container:
