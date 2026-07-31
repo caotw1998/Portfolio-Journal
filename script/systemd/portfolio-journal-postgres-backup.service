@@ -1,0 +1,8 @@
+[Unit]
+Description=Portfolio Journal PostgreSQL Backup
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=%h/.config/portfolio-journal/postgres-backup.env
+ExecStart=/usr/bin/env bash -lc 'cd "__WORKDIR__" && exec ./script/postgres-backup.sh'

@@ -1,0 +1,550 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions                      Session[]
+  userFunds                     UserFund[]
+  benchmarkInstruments          BenchmarkInstrument[]
+  auditLogs                     AuditLog[]
+  syncRuns                      FundSyncRun[]
+  modelPortfolios               ModelPortfolio[]
+  researchCategories            ResearchCategory[]
+  researchCategoriesInitialized Boolean               @default(false)
+  chartSingleColor              String                @default("#2f6f9f")
+  chartSeriesColors             String[]              @default(["#2f6f9f", "#c98352", "#2f7d5f", "#9a4b5c", "#5a659d", "#a47a2b", "#3f7f8f"])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model Fund {
+  id                        String    @id @default(cuid())
+  code                      String
+  market                    String    @default("CN_FUND")
+  name                      String?
+  fullName                  String?
+  type                      String    @default("fund")
+  rawType                   String?
+  assetClass                String?
+  managementStyle           String?
+  vehicleType               String?
+  investmentRegion          String?
+  shareClass                String?
+  currency                  String?   @default("CNY")
+  company                   String?
+  custodian                 String?
+  issueDate                 DateTime? @db.Date
+  establishedDate           DateTime? @db.Date
+  establishedShares         Decimal?  @db.Decimal(24, 4)
+  managementFeeRate         Decimal?  @db.Decimal(12, 8)
+  custodianFeeRate          Decimal?  @db.Decimal(12, 8)
+  salesServiceFeeRate       Decimal?  @db.Decimal(12, 8)
+  benchmarkDescription      String?
+  trackingTarget            String?
+  investmentObjective       String?
+  investmentScope           String?
+  investmentStrategy        String?
+  dividendPolicy            String?
+  riskReturnCharacteristics String?
+  subscribeStatus           String?
+  redeemStatus              String?
+  latestSyncAt              DateTime?
+  latestSyncError           String?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  followers        UserFund[]
+  navSnapshots     FundNavSnapshot[]
+  managerTenures   FundManagerTenure[]
+  portfolioReports FundPortfolioReport[]
+  scaleSnapshots   FundScaleSnapshot[]
+  flowSnapshots    FundFlowSnapshot[]
+  holderSnapshots  FundHolderSnapshot[]
+  dividendEvents   FundDividendEvent[]
+  documents        FundDocument[]
+  syncRunItems     FundSyncRunItem[]
+  modelAllocations ModelPortfolioAllocation[]
+  sourceSnapshots  FundSourceSnapshot[]
+  etfPcfSnapshots  EtfPcfSnapshot[]
+
+  @@unique([code, market])
+  @@index([name])
+  @@index([latestSyncAt])
+}
+
+model UserFund {
+  id             String    @id @default(cuid())
+  userId         String
+  fundId         String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  researchStage  String    @default("discover")
+  tags           String[]  @default([])
+  thesis         String?
+  keyRisks       String?
+  nextReviewDate DateTime? @db.Date
+
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fund          Fund               @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  categoryLinks UserFundCategory[]
+
+  @@unique([userId, fundId])
+  @@index([fundId])
+  @@index([userId, createdAt])
+}
+
+model ResearchCategory {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fundLinks UserFundCategory[]
+
+  @@unique([userId, name])
+  @@index([userId, sortOrder])
+}
+
+model UserFundCategory {
+  userFundId String
+  categoryId String
+  createdAt  DateTime @default(now())
+
+  userFund UserFund         @relation(fields: [userFundId], references: [id], onDelete: Cascade)
+  category ResearchCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([userFundId, categoryId])
+  @@index([categoryId])
+}
+
+model FundNavSnapshot {
+  id             String    @id @default(cuid())
+  fundId         String
+  valuationDate  DateTime  @db.Date
+  publishedAt    DateTime?
+  unitNav        Decimal   @db.Decimal(20, 8)
+  accumulatedNav Decimal?  @db.Decimal(20, 8)
+  dailyReturn    Decimal?  @db.Decimal(12, 8)
+  source         String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  fund Fund @relation(fields: [fundId], references: [id], onDelete: Cascade)
+
+  @@unique([fundId, valuationDate])
+  @@index([fundId, valuationDate])
+}
+
+model FundManagerTenure {
+  id           String    @id @default(cuid())
+  fundId       String
+  managerName  String
+  startDate    DateTime? @db.Date
+  endDate      DateTime? @db.Date
+  tenureReturn Decimal?  @db.Decimal(12, 8)
+  source       String
+  asOfDate     DateTime? @db.Date
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  fund Fund @relation(fields: [fundId], references: [id], onDelete: Cascade)
+
+  @@unique([fundId, managerName, startDate])
+  @@index([fundId, endDate])
+}
+
+model FundPortfolioReport {
+  id           String   @id @default(cuid())
+  fundId       String
+  reportDate   DateTime @db.Date
+  stockPercent Decimal? @db.Decimal(12, 6)
+  bondPercent  Decimal? @db.Decimal(12, 6)
+  cashPercent  Decimal? @db.Decimal(12, 6)
+  otherPercent Decimal? @db.Decimal(12, 6)
+  industryJson Json?
+  source       String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  fund     Fund          @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  holdings FundHolding[]
+
+  @@unique([fundId, reportDate])
+  @@index([fundId, reportDate])
+}
+
+model FundHolding {
+  id                String   @id @default(cuid())
+  portfolioReportId String
+  kind              String
+  rank              Int
+  code              String?
+  name              String
+  weight            Decimal? @db.Decimal(12, 6)
+  quantity          Decimal? @db.Decimal(24, 4)
+  marketValue       Decimal? @db.Decimal(24, 4)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  portfolioReport FundPortfolioReport @relation(fields: [portfolioReportId], references: [id], onDelete: Cascade)
+
+  @@unique([portfolioReportId, kind, rank])
+  @@index([portfolioReportId])
+}
+
+model StockIndustryClassification {
+  code          String    @id
+  name          String?
+  industry      String?
+  taxonomy      String?
+  source        String?
+  sourceUrl     String?
+  status        String    @default("active")
+  lastAttemptAt DateTime  @default(now())
+  lastSuccessAt DateTime?
+  lastError     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([status, lastAttemptAt])
+}
+
+model EtfPcfSnapshot {
+  id                          String    @id @default(cuid())
+  fundId                      String
+  tradingDay                  DateTime  @db.Date
+  previousTradingDay          DateTime? @db.Date
+  creationRedemptionUnit      Decimal?  @db.Decimal(24, 4)
+  navPerCreationUnit          Decimal?  @db.Decimal(24, 4)
+  nav                         Decimal?  @db.Decimal(20, 8)
+  cashComponent               Decimal?  @db.Decimal(24, 4)
+  estimatedCashComponent      Decimal?  @db.Decimal(24, 4)
+  maxCashRatio                Decimal?  @db.Decimal(12, 8)
+  creationRedemptionStatus    String?
+  creationRedemptionMechanism String?
+  publishIopv                 Boolean?
+  creationLimit               Decimal?  @db.Decimal(24, 4)
+  redemptionLimit             Decimal?  @db.Decimal(24, 4)
+  limitsJson                  Json?
+  source                      String
+  sourceUrl                   String?
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
+
+  fund       Fund              @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  components EtfPcfComponent[]
+
+  @@unique([fundId, tradingDay])
+  @@index([fundId, tradingDay])
+}
+
+model EtfPcfComponent {
+  id                       String   @id @default(cuid())
+  snapshotId               String
+  instrumentCode           String
+  instrumentName           String
+  quantity                 Decimal? @db.Decimal(24, 4)
+  substitutionFlag         String
+  creationPremiumRate      Decimal? @db.Decimal(12, 8)
+  redemptionDiscountRate   Decimal? @db.Decimal(12, 8)
+  substitutionCashAmount   Decimal? @db.Decimal(24, 4)
+  creationCashSubstitute   Decimal? @db.Decimal(24, 4)
+  redemptionCashSubstitute Decimal? @db.Decimal(24, 4)
+  market                   String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  snapshot EtfPcfSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@unique([snapshotId, instrumentCode])
+  @@index([snapshotId])
+}
+
+model FundScaleSnapshot {
+  id          String   @id @default(cuid())
+  fundId      String
+  reportDate  DateTime @db.Date
+  netAssets   Decimal? @db.Decimal(24, 4)
+  shares      Decimal? @db.Decimal(24, 4)
+  holderCount BigInt?
+  source      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  fund Fund @relation(fields: [fundId], references: [id], onDelete: Cascade)
+
+  @@unique([fundId, reportDate])
+  @@index([fundId, reportDate])
+}
+
+model FundSourceSnapshot {
+  id            String    @id @default(cuid())
+  fundId        String
+  source        String
+  section       String
+  sourceUrl     String?
+  asOfDate      DateTime? @db.Date
+  rawJson       Json
+  fetchedAt     DateTime  @default(now())
+  expiresAt     DateTime
+  error         String?
+  status        String    @default("unknown")
+  lastSuccessAt DateTime?
+  lastAttemptAt DateTime?
+  failureCount  Int       @default(0)
+  contentHash   String?
+  missingFields Json?
+  coverageJson  Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  fund Fund @relation(fields: [fundId], references: [id], onDelete: Cascade)
+
+  @@unique([fundId, source, section])
+  @@index([fundId, section])
+  @@index([expiresAt])
+}
+
+model FundCatalogEntry {
+  id             String    @id @default(cuid())
+  code           String
+  market         String    @default("CN_FUND")
+  name           String
+  rawType        String?
+  source         String
+  sourceUrl      String?
+  official       Boolean   @default(false)
+  lastVerifiedAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([code, market])
+  @@index([name])
+  @@index([source, official])
+}
+
+model FundFlowSnapshot {
+  id            String   @id @default(cuid())
+  fundId        String
+  reportDate    DateTime @db.Date
+  subscriptions Decimal? @db.Decimal(24, 4)
+  redemptions   Decimal? @db.Decimal(24, 4)
+  totalShares   Decimal? @db.Decimal(24, 4)
+  source        String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  fund Fund @relation(fields: [fundId], references: [id], onDelete: Cascade)
+
+  @@unique([fundId, reportDate])
+  @@index([fundId, reportDate])
+}
+
+model FundHolderSnapshot {
+  id                 String   @id @default(cuid())
+  fundId             String
+  reportDate         DateTime @db.Date
+  institutionPercent Decimal? @db.Decimal(12, 6)
+  individualPercent  Decimal? @db.Decimal(12, 6)
+  internalPercent    Decimal? @db.Decimal(12, 6)
+  source             String
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  fund Fund @relation(fields: [fundId], references: [id], onDelete: Cascade)
+
+  @@unique([fundId, reportDate])
+  @@index([fundId, reportDate])
+}
+
+model FundDividendEvent {
+  id          String    @id @default(cuid())
+  fundId      String
+  exDate      DateTime? @db.Date
+  recordDate  DateTime? @db.Date
+  paymentDate DateTime? @db.Date
+  amount      Decimal?  @db.Decimal(20, 8)
+  description String?
+  source      String
+  sourceUrl   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  fund Fund @relation(fields: [fundId], references: [id], onDelete: Cascade)
+
+  @@index([fundId, exDate])
+}
+
+model FundDocument {
+  id           String    @id @default(cuid())
+  fundId       String
+  documentType String
+  title        String
+  publishedAt  DateTime?
+  periodEnd    DateTime? @db.Date
+  source       String
+  sourceUrl    String
+  contentHash  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  fund Fund @relation(fields: [fundId], references: [id], onDelete: Cascade)
+
+  @@unique([fundId, sourceUrl])
+  @@index([fundId, publishedAt])
+}
+
+model FundSyncRun {
+  id                String    @id @default(cuid())
+  userId            String
+  status            String    @default("queued")
+  requestedSections String[]  @default([])
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user  User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items FundSyncRunItem[]
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+model FundSyncRunItem {
+  id           String    @id @default(cuid())
+  syncRunId    String
+  fundId       String
+  section      String
+  status       String    @default("queued")
+  attemptCount Int       @default(0)
+  error        String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  syncRun FundSyncRun @relation(fields: [syncRunId], references: [id], onDelete: Cascade)
+  fund    Fund        @relation(fields: [fundId], references: [id], onDelete: Cascade)
+
+  @@unique([syncRunId, fundId, section])
+  @@index([fundId, createdAt])
+  @@index([status, createdAt])
+}
+
+model ModelPortfolio {
+  id                 String   @id @default(cuid())
+  userId             String
+  name               String
+  description        String?
+  startDate          DateTime @db.Date
+  benchmarkId        String?
+  rebalanceFrequency String   @default("quarterly")
+  transactionCostBps Decimal  @default(0) @db.Decimal(10, 4)
+  cashAnnualReturn   Decimal  @default(0) @db.Decimal(12, 8)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user        User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  allocations ModelPortfolioAllocation[]
+
+  @@index([userId, createdAt])
+}
+
+model ModelPortfolioAllocation {
+  id               String   @id @default(cuid())
+  modelPortfolioId String
+  fundId           String
+  targetWeight     Decimal  @db.Decimal(12, 8)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  modelPortfolio ModelPortfolio @relation(fields: [modelPortfolioId], references: [id], onDelete: Cascade)
+  fund           Fund           @relation(fields: [fundId], references: [id], onDelete: Restrict)
+
+  @@unique([modelPortfolioId, fundId])
+  @@index([fundId])
+}
+
+model BenchmarkInstrument {
+  id            String    @id @default(cuid())
+  userId        String
+  code          String
+  market        String
+  name          String
+  sourceSymbol  String?
+  currency      String?
+  provider      String
+  status        String    @default("active")
+  displayOrder  Int       @default(0)
+  lastSyncAt    DateTime?
+  lastSyncError String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user           User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  priceSnapshots BenchmarkPriceSnapshot[]
+
+  @@unique([userId, code, market])
+  @@index([userId, status, displayOrder, createdAt])
+}
+
+model BenchmarkPriceSnapshot {
+  id                    String   @id @default(cuid())
+  benchmarkInstrumentId String
+  date                  DateTime @db.Date
+  closeValue            Decimal  @db.Decimal(20, 8)
+  source                String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  benchmarkInstrument BenchmarkInstrument @relation(fields: [benchmarkInstrumentId], references: [id], onDelete: Cascade)
+
+  @@unique([benchmarkInstrumentId, date])
+  @@index([benchmarkInstrumentId, date])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  entityType String
+  entityId   String
+  action     String
+  source     String
+  actorId    String?
+  beforeJson Json?
+  afterJson  Json?
+  reason     String?
+  createdAt  DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId, createdAt])
+  @@index([userId, createdAt])
+}
