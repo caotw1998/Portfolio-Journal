@@ -466,6 +466,20 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   expect(mobileNavigationLinkBoxes[0]).not.toBeNull();
   expect(mobileNavigationLinkBoxes[1]).not.toBeNull();
   expect(Math.abs(mobileNavigationLinkBoxes[1]!.y - mobileNavigationLinkBoxes[0]!.y)).toBeLessThan(2);
+  const compactNavigationLinkBoxes = await Promise.all([
+    performanceSectionLink.boundingBox(),
+    capitalSectionLink.boundingBox(),
+    portfolioSectionLink.boundingBox(),
+    profileSectionLink.boundingBox(),
+    managersSectionLink.boundingBox(),
+    mandateSectionLink.boundingBox(),
+    qualitySectionLink.boundingBox(),
+  ]);
+  expect(compactNavigationLinkBoxes.every(Boolean)).toBe(true);
+  expect(mobileNavigationBox!.height).toBeLessThanOrEqual(94);
+  expect(Math.abs(compactNavigationLinkBoxes[3]!.y - compactNavigationLinkBoxes[0]!.y)).toBeLessThan(2);
+  expect(compactNavigationLinkBoxes[4]!.y).toBeGreaterThan(compactNavigationLinkBoxes[0]!.y + 20);
+  expect(Math.abs(compactNavigationLinkBoxes[6]!.y - compactNavigationLinkBoxes[4]!.y)).toBeLessThan(2);
   const touchArea = page.getByTestId("fund-nav-chart-touch-area");
   const readout = page.getByTestId("fund-performance-readout");
   await touchArea.scrollIntoViewIfNeeded();

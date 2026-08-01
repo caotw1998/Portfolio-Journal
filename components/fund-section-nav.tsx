@@ -87,12 +87,12 @@ export function PageSectionNav({
   return (
     <nav
       aria-label={ariaLabel}
-      className="sticky top-0 z-30 w-full min-w-0 max-w-full self-start overflow-hidden border border-border bg-card/95 px-2 py-2 shadow-[0_12px_35px_rgba(54,45,31,0.08)] backdrop-blur lg:top-6 lg:px-3 lg:py-4 layout-mobile:top-0 layout-mobile:w-full layout-mobile:px-2 layout-mobile:py-2 layout-desktop:top-6 layout-desktop:px-3 layout-desktop:py-4"
+      className="sticky top-0 z-30 w-full min-w-0 max-w-full self-start overflow-hidden border border-border bg-card/95 px-1.5 py-1.5 shadow-[0_12px_35px_rgba(54,45,31,0.08)] backdrop-blur lg:top-6 lg:px-3 lg:py-4 layout-mobile:top-0 layout-mobile:w-full layout-mobile:px-1.5 layout-mobile:py-1.5 layout-desktop:top-6 layout-desktop:px-3 layout-desktop:py-4"
     >
       <div className="mb-3 hidden border-b border-border pb-3 lg:block layout-mobile:hidden layout-desktop:block">
         <p className="text-sm font-semibold">{title}</p>
       </div>
-      <div className="grid w-full min-w-0 grid-cols-[repeat(auto-fit,minmax(5.25rem,1fr))] gap-1.5 lg:grid-cols-1 layout-mobile:grid-cols-[repeat(auto-fit,minmax(5.25rem,1fr))] layout-desktop:grid-cols-1">
+      <div className="grid w-full min-w-0 grid-cols-4 gap-1 lg:grid-cols-1 layout-mobile:!grid-cols-4 layout-mobile:gap-1 layout-desktop:!grid-cols-1">
         {items.map((item, index) => {
           const isActive = activeSection === item.id;
           return (
@@ -101,7 +101,7 @@ export function PageSectionNav({
               href={`#${item.id}`}
               onClick={() => revealSection(item.id)}
               aria-current={isActive ? "location" : undefined}
-              className={`group flex min-w-0 items-center justify-center gap-1 border px-1.5 py-2 text-center text-[11px] font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent lg:justify-between lg:px-3 lg:text-xs layout-mobile:min-w-0 layout-mobile:justify-center layout-mobile:px-1.5 layout-mobile:text-[11px] layout-desktop:justify-between layout-desktop:px-3 layout-desktop:text-xs ${
+              className={`group flex min-h-9 min-w-0 items-center justify-center gap-1 border px-1 py-1.5 text-center text-[11px] font-medium leading-tight transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent lg:min-h-0 lg:justify-between lg:px-3 lg:py-2 lg:text-xs layout-mobile:!min-h-9 layout-mobile:min-w-0 layout-mobile:justify-center layout-mobile:px-1 layout-mobile:py-1.5 layout-mobile:text-[11px] layout-desktop:!min-h-0 layout-desktop:justify-between layout-desktop:px-3 layout-desktop:py-2 layout-desktop:text-xs ${
                 isActive
                   ? "border-accent bg-accent text-accent-foreground"
                   : "border-border bg-background text-muted-foreground hover:border-accent/50 hover:text-foreground"
