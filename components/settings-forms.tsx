@@ -83,9 +83,8 @@ export function SettingsForms({ profile }: { profile: Profile }) {
 
   return (
     <div className="grid gap-5">
-    <section className="rounded-[1.5rem] border border-border bg-card p-6">
-      <p className="text-sm text-muted-foreground">Workspace Profile</p>
-      <h2 className="mt-2 text-2xl font-semibold">研究工作区资料</h2>
+    <section id="workspace-profile" className="scroll-mt-20 rounded-[1.5rem] border border-border bg-card p-6 lg:scroll-mt-6">
+      <h2 className="text-2xl font-semibold">研究工作区资料</h2>
 
       <div className="mt-6 grid gap-3 md:grid-cols-2 layout-mobile:grid-cols-1 layout-desktop:grid-cols-2">
         <div className="rounded-[1.25rem] border border-border bg-background p-4">
@@ -121,10 +120,8 @@ export function SettingsForms({ profile }: { profile: Profile }) {
         </button>
       </form>
     </section>
-    <section className="rounded-[1.5rem] border border-border bg-card p-6">
-      <p className="text-sm text-muted-foreground">Chart Palette</p>
-      <h2 className="mt-2 text-2xl font-semibold">曲线颜色</h2>
-      <p className="mt-2 text-sm leading-6 text-muted-foreground">单曲线使用默认色；同时展示多条曲线时，从左到右按色序循环使用。经理、分红和回撤标记保留语义色。</p>
+    <section id="chart-colors" className="scroll-mt-20 rounded-[1.5rem] border border-border bg-card p-6 lg:scroll-mt-6">
+      <h2 className="text-2xl font-semibold">曲线颜色</h2>
 
       <form onSubmit={saveChartPreferences} className="mt-5 grid gap-5">
         <label className="flex max-w-md items-center justify-between gap-4 border border-border bg-background p-4 text-sm">
@@ -150,6 +147,18 @@ export function SettingsForms({ profile }: { profile: Profile }) {
           <button type="button" disabled={isPending} onClick={() => { setChartSingleColor(DEFAULT_CHART_SINGLE_COLOR); setChartSeriesColors([...DEFAULT_CHART_SERIES_COLORS]); }} className="border border-border bg-background px-5 py-2.5 text-sm">恢复默认</button>
         </div>
       </form>
+    </section>
+    <section id="feature-guide" className="scroll-mt-20 rounded-[1.5rem] border border-border bg-card p-6 lg:scroll-mt-6">
+      <h2 className="text-2xl font-semibold">功能说明</h2>
+      <div className="mt-5 grid gap-px bg-border sm:grid-cols-2">
+        {[
+          ["研究库与同步", "基金和指数加入研究库后，可按需同步公开净值、行情、档案、经理、持仓与规模数据；同步状态和数据时效在详情页的数据质量区域查看。"],
+          ["业绩曲线与基准", "基金和指数详情均支持时间区间、业绩与回撤切换、曲线高亮、单点读取、双指区间和回撤修复分析。添加基准可选择研究库中的基金或指数；基金曲线另显示经理更换和分红事件。"],
+          ["指数数据与代理口径", "指数优先使用原始点位；当页面明确标记 ETF 代理时，曲线代表相关 ETF 的前复权行情，不等同于指数原始点位。"],
+          ["持仓、PCF 与规模", "基金持仓按公开定期报告展示；ETF 的 PCF 是交易日申赎篮子，不等同于全部实际资产。规模、份额和持有人比例使用各自单位与坐标轴。"],
+          ["多标的对比与模拟组合", "对比页按共同覆盖区间统一起点，并在原始观测点计算指标。模拟组合按目标权重回看历史，余额视为现金，结果不代表真实交易或未来收益。"],
+        ].map(([title, description]) => <article key={title} className="bg-background p-4"><h3 className="font-semibold">{title}</h3><p className="mt-2 text-sm leading-7 text-muted-foreground">{description}</p></article>)}
+      </div>
     </section>
     </div>
   );

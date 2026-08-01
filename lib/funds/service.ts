@@ -905,3 +905,105 @@ export async function compareResearchSeries(input: {
   const comparison = buildResearchComparison(series);
   return comparison;
 }
+
+export type DetailSeriesKind = "fund" | "benchmark";
+
+export async function listDetailBaselineOptions(userId: string) {
+  const [fundRows, benchmarkRows] = await Promise.all([
+    prisma.userFund.findMany({
+      where: { userId, fund: { navSnapshots: { some: {} } } },
+      select: { fund: { select: { id: true, code: true, name: true, market: true } } },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.benchmarkInstrument.findMany({
+      where: { userId, status: "active", priceSnapshots: { some: {} } },
+      select: {
+        id: true, code: true, name: true, market: true,
+        priceSnapshots: { orderBy: { date: "desc" }, take: 1, select: { source: true } },
+      },
+      orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
+    }),
+  ]);
+  return [
+    ...fundRows.map(({ fund }) => ({ id: fund.id, kind: "fund" as const, code: fund.code, name: fund.name ?? fund.code, market: fund.market, dataBasisLabel: null })),
+    ...benchmarkRows.map((benchmark) => ({
+      id: benchmark.id,
+      kind: "benchmark" as const,
+      code: benchmark.code,
+      name: benchmark.name,
+      market: benchmark.market,
+      dataBasisLabel: benchmark.priceSnapshots[0]?.source === "proxy_etf_515450" ? "515450 ETF 代理" : null,
+    })),
+  ];
+}
+
+async function loadDetailSeries(input: {
+  userId: string;
+  kind: DetailSeriesKind;
+  id: string;
+  from?: string;
+  to?: string;
+}): Promise<ResearchSeriesInput> {
+  const dateRange = {
+    gte: input.from ? new Date(`${input.from}T00:00:00Z`) : undefined,
+    lte: input.to ? new Date(`${input.to}T00:00:00Z`) : undefined,
+  };
+  if (input.kind === "fund") {
+    const followed = await prisma.userFund.findUnique({
+      where: { userId_fundId: { userId: input.userId, fundId: input.id } },
+      select: {
+        fund: {
+          select: {
+            id: true, code: true, name: true,
+            navSnapshots: { where: { valuationDate: dateRange }, orderBy: { valuationDate: "asc" } },
+            dividendEvents: { where: { exDate: dateRange }, orderBy: { exDate: "asc" } },
+          },
+        },
+      },
+    });
+    if (!followed) throw new ApiError("基金不存在或无权访问。", 404);
+    return {
+      id: followed.fund.id,
+      kind: "fund",
+      name: followed.fund.name ?? followed.fund.code,
+      code: followed.fund.code,
+      basis: "dividend_reinvested",
+      points: buildFundPerformanceSeries(followed.fund.navSnapshots, followed.fund.dividendEvents),
+    };
+  }
+  const benchmark = await prisma.benchmarkInstrument.findFirst({
+    where: { id: input.id, userId: input.userId },
+    select: {
+      id: true, code: true, name: true,
+      priceSnapshots: { where: { date: dateRange }, orderBy: { date: "asc" } },
+    },
+  });
+  if (!benchmark) throw new ApiError("指数不存在或无权访问。", 404);
+  return {
+    id: benchmark.id,
+    kind: "benchmark",
+    name: benchmark.priceSnapshots[0]?.source === "proxy_etf_515450" ? `${benchmark.name}（515450 ETF 代理）` : benchmark.name,
+    code: benchmark.code,
+    basis: "close",
+    points: benchmark.priceSnapshots.map((point) => ({ date: point.date.toISOString().slice(0, 10), value: point.closeValue.toNumber() })),
+  };
+}
+
+export async function compareDetailSeries(input: {
+  userId: string;
+  primaryKind: DetailSeriesKind;
+  primaryId: string;
+  baselineKind: DetailSeriesKind;
+  baselineId: string;
+  from?: string;
+  to?: string;
+}) {
+  if (input.primaryKind === input.baselineKind && input.primaryId === input.baselineId) {
+    throw new ApiError("主标的不能同时作为自己的基准。", 400);
+  }
+  const series = await Promise.all([
+    loadDetailSeries({ userId: input.userId, kind: input.primaryKind, id: input.primaryId, from: input.from, to: input.to }),
+    loadDetailSeries({ userId: input.userId, kind: input.baselineKind, id: input.baselineId, from: input.from, to: input.to }),
+  ]);
+  return buildResearchComparison(series);
+}

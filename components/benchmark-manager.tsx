@@ -864,9 +864,7 @@ export function BenchmarkManager({
       <div className="grid min-w-0 gap-5 xl:grid-cols-[0.9fr_1.1fr] layout-mobile:grid-cols-1 layout-desktop:grid-cols-[0.9fr_1.1fr]">
         <ResponsiveDisclosure targetId="benchmark-discovery" title="发现指数" summary="搜索公开指数 · 手工录入">
         <section id="benchmark-discovery" className="min-w-0 scroll-mt-20 rounded-[1.5rem] border border-border bg-card p-6 lg:scroll-mt-6">
-          <p className="text-sm text-muted-foreground">Discover</p>
-          <h2 className="mt-2 text-2xl font-semibold">搜索公开指数</h2>
-          <p className="mt-3 text-xs leading-6 text-muted-foreground">按中文名称或代码发现中国、港股与海外指数，加入后立即同步可用历史。</p>
+          <h2 className="text-2xl font-semibold">搜索公开指数</h2>
 
           <form onSubmit={handleBenchmarkSearch} className="mt-5 flex gap-2">
             <input
@@ -1168,11 +1166,11 @@ export function BenchmarkManager({
           <label className="grid gap-1 text-xs text-muted-foreground">搜索指数库并加入比较<input aria-label="搜索多指数比较" value={comparisonQuery} onChange={(event) => setComparisonQuery(event.target.value)} placeholder="输入指数名称或代码" autoComplete="off" className="rounded-2xl border border-border bg-background px-4 py-3 text-sm text-foreground outline-none focus:border-accent" /></label>
           {comparisonQuery.trim() ? <div className="absolute z-20 mt-1 max-h-64 w-full overflow-y-auto border border-border bg-card shadow-lg">{matchedComparisonBenchmarks.map((benchmark) => <button type="button" key={benchmark.id} onClick={() => { toggleSelectedBenchmark(benchmark.id); setComparisonQuery(""); }} className="grid w-full grid-cols-[1fr_auto] gap-3 border-b border-border px-3 py-3 text-left text-sm last:border-0 hover:bg-background"><span>{benchmark.name}</span><span className="font-mono text-xs text-muted-foreground">{benchmark.code}</span></button>)}{!matchedComparisonBenchmarks.length ? <p className="px-3 py-4 text-sm text-muted-foreground">没有匹配的未选指数。</p> : null}</div> : null}
         </div>
-        <div className="mt-3 flex flex-wrap gap-2">{selectedBenchmarks.map((benchmark) => <span key={benchmark.id} className="flex items-center gap-2 rounded-full border border-accent bg-background px-3 py-2 text-sm"><span>{benchmark.name} · <span className="font-mono text-xs">{benchmark.code}</span></span><button type="button" aria-label={`移除比较指数 ${benchmark.name}`} onClick={() => toggleSelectedBenchmark(benchmark.id)} className="text-muted-foreground hover:text-foreground">×</button></span>)}{!selectedBenchmarks.length ? <p className="text-sm text-muted-foreground">先搜索并添加至少一只有数据的 active 指数，不会一次展示全部标的。</p> : null}</div>
+        <div className="mt-3 flex flex-wrap gap-2">{selectedBenchmarks.map((benchmark) => <span key={benchmark.id} className="flex items-center gap-2 rounded-full border border-accent bg-background px-3 py-2 text-sm"><span>{benchmark.name} · <span className="font-mono text-xs">{benchmark.code}</span></span><button type="button" aria-label={`移除比较指数 ${benchmark.name}`} onClick={() => toggleSelectedBenchmark(benchmark.id)} className="text-muted-foreground hover:text-foreground">×</button></span>)}{!selectedBenchmarks.length ? <p className="text-sm text-muted-foreground">暂无已选指数。</p> : null}</div>
 
         {comparison.series.length === 0 ? (
           <div className="mt-6 rounded-[1.25rem] border border-dashed border-border bg-background px-4 py-6 text-sm text-muted-foreground">
-            先选择至少一只有数据的 active 基准，系统会按共同区间展示归一化曲线与指标。
+            先选择至少一只有数据的已启用基准。
           </div>
         ) : (
           <>

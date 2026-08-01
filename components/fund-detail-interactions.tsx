@@ -127,9 +127,7 @@ export function FundCapitalHistory({
   return (
     <section id="capital" className="scroll-mt-20 border border-border bg-card p-5 lg:scroll-mt-6 lg:p-6">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Scale / Flow / Holders</p>
         <h2 className="mt-1 text-2xl font-semibold">规模与资金结构</h2>
-        <p className="mt-2 text-sm text-muted-foreground">每组三个报告期按时间排列；持有人结构采用不晚于对应报告期的最近披露值。</p>
         {pageCount > 1 ? (
           <div className="mt-4 flex flex-wrap items-center gap-2" aria-label="规模资金报告期翻页">
             <button type="button" onClick={() => setCapitalPageIndex((current) => Math.min(current + 1, pageCount - 1))} disabled={capitalPageIndex >= pageCount - 1} className="min-h-10 border border-border bg-background px-3 py-2 text-xs text-muted-foreground disabled:opacity-40">较早三期</button>
@@ -234,7 +232,6 @@ export function FundPortfolioHistory({ reports, selectedReport, fundId }: { repo
       <section className="min-w-0 border border-border bg-card p-3 sm:p-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Portfolio · Disclosure</p>
             <h2 className="mt-1 text-2xl font-semibold">公开持仓</h2>
           </div>
           <label className="grid gap-1 text-xs text-muted-foreground">
@@ -284,10 +281,9 @@ export function FundPortfolioHistory({ reports, selectedReport, fundId }: { repo
         {report.previousReportDate ? <p className="mt-2 text-[11px] text-muted-foreground">较上期：{report.previousReportDate.slice(0, 10)} · 持仓权重变化（%）</p> : <p className="mt-2 text-[11px] text-muted-foreground">暂无更早报告期用于计算仓位变化。</p>}
       </section>
       <section className="min-w-0 border border-border bg-card p-5">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Industry · {report.reportDate.slice(0, 10)}</p>
+        <p className="font-mono text-xs text-muted-foreground">{report.reportDate.slice(0, 10)}</p>
         <h2 className="mt-1 text-2xl font-semibold">行业配置</h2>
         {industries.length ? <div data-testid="industry-allocation-chart" className="mt-2 min-w-0"><ThemedEChart option={industryChartOption} height={300} /></div> : <div data-testid="industry-allocation-empty" className="mt-5 flex min-h-48 items-center justify-center border border-dashed border-border bg-background px-5 text-center text-sm text-muted-foreground">前十大持仓暂缺可用的中证行业数据。</div>}
-        <p className="mt-4 text-xs leading-6 text-muted-foreground">按前十大股票持仓权重汇总，采用中证一级行业分类；缺少行业或权重的数据不作推断。</p>
       </section>
     </div>
   );
@@ -356,7 +352,7 @@ function EtfPcfSnapshotView({ snapshots, selectedSnapshot, fundId }: { snapshots
   return (
     <section className="min-w-0 border border-border bg-card p-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">ETF · Portfolio Composition File</p><h2 className="mt-1 text-2xl font-semibold">申购赎回清单</h2><p className="mt-2 text-xs leading-5 text-muted-foreground">PCF 是当日申赎篮子，不等同于基金全部实际资产持仓。</p></div>
+        <div><h2 className="text-2xl font-semibold">申购赎回清单</h2><p className="mt-2 text-xs leading-5 text-muted-foreground">PCF 是当日申赎篮子，不等同于基金全部实际资产持仓。</p></div>
         <label className="grid gap-1 text-xs text-muted-foreground">清单日期<select aria-label="PCF 清单日期" value={snapshot.id} onChange={(event) => router.replace(`/funds/${fundId}?pcf=${event.target.value}#portfolio`, { scroll: false })} className="border border-border bg-background px-3 py-2 text-sm text-foreground">{snapshots.map((item) => <option key={item.id} value={item.id}>{pcfDate(item.tradingDay)}</option>)}</select></label>
       </div>
       <div className="mt-5 grid gap-px bg-border sm:grid-cols-2 lg:grid-cols-4 layout-mobile:grid-cols-1 layout-desktop:grid-cols-4">

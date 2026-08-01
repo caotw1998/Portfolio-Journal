@@ -254,6 +254,35 @@ describe("fund chart range", () => {
     expect(result?.excessReturn).toBeCloseTo(0.1, 10);
   });
 
+  test("treats the first series as primary and the second as baseline for same-kind excess return", () => {
+    const result = calculateSelectedRangeMetrics([
+      {
+        id: "primary",
+        kind: "fund",
+        name: "主基金",
+        code: "000001",
+        basis: "dividend_reinvested",
+        points: [
+          { date: "2025-01-01", value: 1, returnRate: 0 },
+          { date: "2026-01-01", value: 1.2, returnRate: 0.2 },
+        ],
+      },
+      {
+        id: "baseline",
+        kind: "fund",
+        name: "基准基金",
+        code: "000002",
+        basis: "dividend_reinvested",
+        points: [
+          { date: "2025-01-01", value: 2, returnRate: 0 },
+          { date: "2026-01-01", value: 2.2, returnRate: 0.1 },
+        ],
+      },
+    ], "2025-01-01", "2026-01-01");
+
+    expect(result?.excessReturn).toBeCloseTo(0.1, 10);
+  });
+
   test("does not calculate a two-finger interval when both endpoints are the same day", () => {
     expect(calculateSelectedRangeMetrics([], "2026-01-01", "2026-01-01")).toBeNull();
   });

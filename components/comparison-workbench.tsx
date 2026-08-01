@@ -178,9 +178,7 @@ export function ComparisonWorkbench({
         className="grid grid-cols-1 scroll-mt-20 gap-5 border border-border bg-card p-5 lg:grid-cols-2 lg:scroll-mt-6 layout-mobile:!grid-cols-1 layout-desktop:grid-cols-2"
       >
         <div data-testid="comparison-fund-search" className="w-full min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-            Funds · 最多 5 只
-          </p>
+          <p className="text-xs font-semibold text-muted-foreground">基金 · 最多 5 只</p>
           <label className="mt-3 grid gap-1 text-xs text-muted-foreground">
             搜索研究库基金
             <input
@@ -247,9 +245,7 @@ export function ComparisonWorkbench({
           </div>
         </div>
         <div data-testid="comparison-benchmark-search" className="w-full min-w-0">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-            Benchmark · 仅 1 个
-          </p>
+          <p className="text-xs font-semibold text-muted-foreground">指数基准 · 仅 1 个</p>
           <label className="mt-3 grid gap-1 text-xs text-muted-foreground">
             搜索指数库
             <input
@@ -341,10 +337,7 @@ export function ComparisonWorkbench({
           >
             <div className="flex flex-wrap justify-between gap-2">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                  Normalized at 1.0
-                </p>
-                <h2 className="mt-1 text-2xl font-semibold">共同区间走势</h2>
+                <h2 className="text-2xl font-semibold">共同区间走势</h2>
               </div>
               <p className="font-mono text-xs text-muted-foreground">
                 {comparison.range

@@ -412,10 +412,7 @@ export function ResearchLibrary({
       <section id="research-discovery" className="scroll-mt-20 border border-border bg-card p-5 lg:scroll-mt-6">
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end layout-mobile:grid-cols-1 layout-desktop:grid-cols-[minmax(0,1fr)_auto] layout-desktop:items-end">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-              Discover
-            </p>
-            <h2 className="mt-2 text-2xl font-semibold">搜索公开基金目录</h2>
+            <h2 className="text-2xl font-semibold">搜索公开基金目录</h2>
             <form onSubmit={search} className="mt-4 flex max-w-4xl gap-2">
               <input
                 aria-label="基金代码或名称"
@@ -473,10 +470,8 @@ export function ResearchLibrary({
       <section id="research-library" className="min-w-0 scroll-mt-20 border border-border bg-card lg:scroll-mt-6">
         <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border p-5">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-              Coverage · {funds.length}
-            </p>
-            <h2 className="mt-2 text-2xl font-semibold">我的研究库</h2>
+            <p className="text-xs font-semibold text-muted-foreground">收录 {funds.length} 只</p>
+            <h2 className="mt-1 text-2xl font-semibold">我的研究库</h2>
           </div>
           <div className="flex flex-wrap gap-2">
             <select

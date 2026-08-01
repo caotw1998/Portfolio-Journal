@@ -90,12 +90,9 @@ export function PageSectionNav({
       className="sticky top-0 z-30 w-full min-w-0 max-w-full self-start overflow-hidden border border-border bg-card/95 px-2 py-2 shadow-[0_12px_35px_rgba(54,45,31,0.08)] backdrop-blur lg:top-6 lg:px-3 lg:py-4 layout-mobile:top-0 layout-mobile:w-full layout-mobile:px-2 layout-mobile:py-2 layout-desktop:top-6 layout-desktop:px-3 layout-desktop:py-4"
     >
       <div className="mb-3 hidden border-b border-border pb-3 lg:block layout-mobile:hidden layout-desktop:block">
-        <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
-          Page index
-        </p>
-        <p className="mt-1 text-sm font-semibold">{title}</p>
+        <p className="text-sm font-semibold">{title}</p>
       </div>
-      <div className="grid w-full min-w-0 grid-flow-col auto-cols-fr gap-1.5 lg:grid-flow-row lg:auto-cols-auto layout-mobile:grid-flow-col layout-mobile:auto-cols-fr layout-desktop:grid-flow-row layout-desktop:auto-cols-auto">
+      <div className="grid w-full min-w-0 grid-cols-[repeat(auto-fit,minmax(5.25rem,1fr))] gap-1.5 lg:grid-cols-1 layout-mobile:grid-cols-[repeat(auto-fit,minmax(5.25rem,1fr))] layout-desktop:grid-cols-1">
         {items.map((item, index) => {
           const isActive = activeSection === item.id;
           return (

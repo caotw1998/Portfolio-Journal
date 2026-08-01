@@ -178,10 +178,7 @@ export function ModelPortfolioWorkbench({
         onSubmit={create}
         className="scroll-mt-20 border border-border bg-card p-5 lg:scroll-mt-6"
       >
-        <p className="text-xs font-semibold uppercase tracking-[.2em] text-muted-foreground">
-          Allocation Draft
-        </p>
-        <h2 className="mt-1 text-2xl font-semibold">目标权重</h2>
+        <h2 className="text-2xl font-semibold">目标权重</h2>
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           <label className="grid gap-1 text-xs text-muted-foreground">
             组合名称
@@ -401,10 +398,7 @@ export function ModelPortfolioWorkbench({
       id="portfolio-backtests"
       className="scroll-mt-20 border border-border bg-card p-5 lg:scroll-mt-6"
     >
-        <p className="text-xs font-semibold uppercase tracking-[.2em] text-muted-foreground">
-          Saved Models
-        </p>
-        <h2 className="mt-1 text-2xl font-semibold">历史检验</h2>
+        <h2 className="text-2xl font-semibold">历史检验</h2>
         <div className="mt-5 divide-y divide-border border-y border-border">
           {portfolios.map((portfolio) => (
             <article

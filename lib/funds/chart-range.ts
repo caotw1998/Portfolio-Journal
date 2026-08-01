@@ -108,16 +108,16 @@ export function calculateSelectedRangeMetrics(
       maxDrawdown: drawdown?.maxDrawdown ?? 0,
     }];
   });
-  const fundMetric = metrics.find((item) => item.kind === "fund");
-  const benchmarkMetric = metrics.find((item) => item.kind === "benchmark");
+  const primaryMetric = metrics.find((item) => item.id === series[0]?.id);
+  const baselineMetric = metrics.find((item) => item.id === series[1]?.id);
 
   return {
     from,
     to,
     days: elapsedDays,
     series: metrics,
-    excessReturn: fundMetric && benchmarkMetric
-      ? fundMetric.returnRate - benchmarkMetric.returnRate
+    excessReturn: primaryMetric && baselineMetric
+      ? primaryMetric.returnRate - baselineMetric.returnRate
       : null,
   };
 }

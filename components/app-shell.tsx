@@ -26,19 +26,12 @@ export async function AppShell({
           <header className="border border-border bg-card shadow-[0_20px_80px_rgba(54,45,31,0.08)]">
             <div className="grid gap-5 border-b border-border/80 bg-[linear-gradient(115deg,rgba(47,93,80,0.17),transparent_48%),radial-gradient(circle_at_80%_0%,rgba(201,131,82,0.22),transparent_30%)] px-5 py-5 md:grid-cols-[1fr_auto] md:px-7 layout-mobile:grid-cols-1 layout-mobile:px-4 layout-mobile:py-4 layout-desktop:grid-cols-[1fr_auto] layout-desktop:px-7">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-muted-foreground">
-                  FUND RESEARCH DESK · CN
-                </p>
-                <h1 className="mt-2 max-w-3xl text-3xl font-semibold tracking-tight md:text-4xl layout-mobile:text-2xl layout-desktop:text-4xl">
+                <h1 className="max-w-3xl text-3xl font-semibold tracking-tight md:text-4xl layout-mobile:text-2xl layout-desktop:text-4xl">
                   基金研究台
                 </h1>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                  搜集公开基金资料，沉淀净值与持仓档案，并用统一口径对照指数。
-                </p>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-3 border-l border-border/80 pl-5 layout-mobile:border-l-0 layout-mobile:border-t layout-mobile:pl-0 layout-mobile:pt-4">
                 <div>
-                  <p className="text-xs uppercase tracking-wider text-muted-foreground">Workspace</p>
                   <p className="mt-1 text-sm font-medium">本地研究工作区</p>
                 </div>
                 <LayoutModeControl initialMode={layoutMode} />

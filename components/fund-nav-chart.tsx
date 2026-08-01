@@ -46,12 +46,12 @@ const chartPalette = {
 
 type ChartView = "performance" | "drawdown";
 
-type BenchmarkOption = {
+export type DetailBaselineOption = {
   id: string;
+  kind: "fund" | "benchmark";
   name: string;
   code: string;
   market: string;
-  dataBasis: "index" | "proxy_etf";
   dataBasisLabel: string | null;
 };
 
@@ -127,18 +127,24 @@ function basisLabel(basis: ComparisonReturnSeries["basis"]) {
   return "指数点位";
 }
 
-export function FundNavChart({
-  fundId,
+export function DetailPerformanceChart({
+  primaryId,
+  primaryKind,
+  primaryName,
+  primaryMarket,
   points,
   managerTenures,
-  benchmarks,
+  baselines,
   chartSingleColor = visualToneColors.chartSingle,
   chartSeriesColors = [...visualToneColors.chartBenchmark],
 }: {
-  fundId: string;
+  primaryId: string;
+  primaryKind: "fund" | "benchmark";
+  primaryName: string;
+  primaryMarket: string;
   points: FundNavChartPoint[];
   managerTenures: FundManagerTenureInput[];
-  benchmarks: BenchmarkOption[];
+  baselines: DetailBaselineOption[];
   chartSingleColor?: string;
   chartSeriesColors?: string[];
 }) {
@@ -156,13 +162,13 @@ export function FundNavChart({
   const [selectedMarketCycleId, setSelectedMarketCycleId] = useState<string | null>(null);
   const [isCurrentManagerRangeSelected, setIsCurrentManagerRangeSelected] = useState(false);
   const [rangeMessage, setRangeMessage] = useState<string | null>(null);
-  const [selectedBenchmarkId, setSelectedBenchmarkId] = useState("");
+  const [selectedBaselineKey, setSelectedBaselineKey] = useState("");
   const [comparison, setComparison] = useState<ComparisonResponse | null>(null);
   const [comparisonMessage, setComparisonMessage] = useState<string | null>(null);
   const [isLoadingComparison, setIsLoadingComparison] = useState(false);
   const [isBenchmarkMenuOpen, setIsBenchmarkMenuOpen] = useState(false);
   const [benchmarkQuery, setBenchmarkQuery] = useState("");
-  const [availableBenchmarks, setAvailableBenchmarks] = useState<BenchmarkOption[]>(() => benchmarks);
+  const [availableBenchmarks, setAvailableBenchmarks] = useState<DetailBaselineOption[]>(() => baselines);
   const [publicBenchmarkResults, setPublicBenchmarkResults] = useState<BenchmarkSearchCandidate[]>([]);
   const [benchmarkSearchMessage, setBenchmarkSearchMessage] = useState<string | null>(null);
   const [isSearchingBenchmarks, setIsSearchingBenchmarks] = useState(false);
@@ -193,25 +199,26 @@ export function FundNavChart({
     () => buildComparisonReturnSeries(comparison?.series ?? []),
     [comparison],
   );
-  const selectedBenchmark = availableBenchmarks.find((item) => item.id === selectedBenchmarkId);
+  const selectedBenchmark = availableBenchmarks.find((item) => `${item.kind}:${item.id}` === selectedBaselineKey);
   const matchedBenchmarks = useMemo(
-    () => searchLibraryOptions(availableBenchmarks, benchmarkQuery, new Set(selectedBenchmarkId ? [selectedBenchmarkId] : [])),
-    [availableBenchmarks, benchmarkQuery, selectedBenchmarkId],
+    () => benchmarkQuery.trim()
+      ? searchLibraryOptions(availableBenchmarks, benchmarkQuery, new Set(selectedBenchmark?.id ? [selectedBenchmark.id] : []))
+      : availableBenchmarks.filter((item) => item.id !== selectedBenchmark?.id).slice(0, 8),
+    [availableBenchmarks, benchmarkQuery, selectedBenchmark],
   );
   const unmatchedPublicBenchmarks = useMemo(() => publicBenchmarkResults.filter((candidate) => !availableBenchmarks.some((benchmark) => {
     const chinaMarkets = new Set(["CN", "SH", "SZ"]);
     return benchmark.code === candidate.code
       && (benchmark.market === candidate.market || chinaMarkets.has(benchmark.market) && chinaMarkets.has(candidate.market));
   })), [availableBenchmarks, publicBenchmarkResults]);
-  const hasComparison = comparisonSeries.some((item) => item.kind === "fund")
-    && comparisonSeries.some((item) => item.kind === "benchmark");
+  const hasComparison = comparisonSeries.length === 2;
   const displayedSeries = hasComparison ? comparisonSeries : [
     {
-      id: fundId,
-      kind: "fund" as const,
-      name: "基金净值",
+      id: primaryId,
+      kind: primaryKind,
+      name: primaryName,
       code: "",
-      basis: fundReturnSeries.basis,
+      basis: primaryKind === "fund" ? fundReturnSeries.basis : "close" as const,
       points: fundReturnSeries.points.map((point) => ({
         date: point.date,
         value: point.value,
@@ -219,8 +226,8 @@ export function FundNavChart({
       })),
     },
   ];
-  const fundSeries = displayedSeries.find((item) => item.kind === "fund");
-  const benchmarkSeries = displayedSeries.find((item) => item.kind === "benchmark");
+  const fundSeries = displayedSeries[0];
+  const benchmarkSeries = displayedSeries[1];
   const fundLatestReturn = fundSeries?.points.at(-1)?.returnRate;
   const benchmarkLatestReturn = benchmarkSeries?.points.at(-1)?.returnRate;
   const fundAnnualizedReturn = calculateAnnualizedReturn(fundSeries?.points ?? []);
@@ -331,36 +338,38 @@ export function FundNavChart({
   }, [benchmarkQuery]);
 
   useEffect(() => {
-    if (!selectedBenchmarkId) return;
+    if (!selectedBenchmark) return;
 
     const controller = new AbortController();
     const parameters = new URLSearchParams({
-      fundIds: fundId,
-      benchmarkId: selectedBenchmarkId,
+      primaryKind,
+      primaryId,
+      baselineKind: selectedBenchmark.kind,
+      baselineId: selectedBenchmark.id,
     });
     if (requestedRange) {
       parameters.set("from", requestedRange.from);
       parameters.set("to", requestedRange.to);
     }
 
-    fetch(`/api/research/compare?${parameters.toString()}`, { signal: controller.signal })
+    fetch(`/api/research/detail-compare?${parameters.toString()}`, { signal: controller.signal })
       .then(async (response) => {
         const body = await response.json() as ComparisonResponse & { error?: string };
-        if (!response.ok) throw new Error(body.error ?? "指数对比加载失败。");
+        if (!response.ok) throw new Error(body.error ?? "基准加载失败。");
         setComparison(body);
         setComparisonMessage(body.warnings.length ? body.warnings.join(" ") : null);
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
         setComparison(null);
-        setComparisonMessage(error instanceof Error ? error.message : "指数对比加载失败。");
+        setComparisonMessage(error instanceof Error ? error.message : "基准加载失败。");
       })
       .finally(() => {
         if (!controller.signal.aborted) setIsLoadingComparison(false);
       });
 
     return () => controller.abort();
-  }, [fundId, requestedRange, selectedBenchmarkId]);
+  }, [primaryId, primaryKind, requestedRange, selectedBenchmark]);
 
   function applyPreset(nextPreset: ChartRangePreset) {
     resetChartInspection();
@@ -369,7 +378,7 @@ export function FundNavChart({
     setSelectedMarketCycleId(null);
     setIsCurrentManagerRangeSelected(false);
     setSelectedManagerMarkerDate(null);
-    if (selectedBenchmarkId && (nextPreset !== preset || selectedMarketCycleId)) {
+    if (selectedBaselineKey && (nextPreset !== preset || selectedMarketCycleId)) {
       setComparison(null);
       setComparisonMessage(null);
       setIsLoadingComparison(true);
@@ -397,7 +406,7 @@ export function FundNavChart({
       return;
     }
     resetChartInspection();
-    if (selectedBenchmarkId) {
+    if (selectedBaselineKey) {
       setComparison(null);
       setComparisonMessage(null);
       setIsLoadingComparison(true);
@@ -417,9 +426,9 @@ export function FundNavChart({
     setIsCurrentManagerRangeSelected(false);
     setSelectedManagerMarkerDate(null);
     setRangeMessage(resolved.clampedFrom || resolved.clampedTo
-      ? `${cycle.label}超出基金净值覆盖范围，已采用 ${resolved.range.from} 至 ${resolved.range.to}。`
+      ? `${cycle.label}超出主标的数据范围，已采用 ${resolved.range.from} 至 ${resolved.range.to}。`
       : `${cycle.label} · A股研究口径 ${cycle.from} 至 ${cycle.to ?? "最新可用日期"}`);
-    if (selectedBenchmarkId) {
+    if (selectedBaselineKey) {
       setComparison(null);
       setComparisonMessage(null);
       setIsLoadingComparison(true);
@@ -436,9 +445,9 @@ export function FundNavChart({
     setIsCurrentManagerRangeSelected(true);
     setSelectedManagerMarkerDate(null);
     setRangeMessage(resolved.clampedToAvailableStart
-      ? "现任经理任职日早于基金净值历史，已从基金首个净值日开始。"
+      ? "现任经理任职日早于基金净值历史，已从首个净值日开始。"
       : null);
-    if (selectedBenchmarkId) {
+    if (selectedBaselineKey) {
       setComparison(null);
       setComparisonMessage(null);
       setIsLoadingComparison(true);
@@ -446,12 +455,12 @@ export function FundNavChart({
     setRequestedRange(resolved.range);
   }
 
-  function selectBenchmark(benchmarkId: string) {
+  function selectBenchmark(baselineKey: string) {
     resetChartInspection();
     setComparison(null);
     setComparisonMessage(null);
-    setIsLoadingComparison(Boolean(benchmarkId));
-    setSelectedBenchmarkId(benchmarkId);
+    setIsLoadingComparison(Boolean(baselineKey));
+    setSelectedBaselineKey(baselineKey);
     setSelectedManagerMarkerDate(null);
     setIsBenchmarkMenuOpen(false);
     setBenchmarkQuery("");
@@ -486,10 +495,13 @@ export function FundNavChart({
         throw new Error(`指数已录入，但暂无可靠历史：${syncBody.error ?? "首轮同步失败。"}`);
       }
       const listResponse = await fetch("/api/benchmarks");
-      const listBody = await listResponse.json() as { data?: BenchmarkOption[] };
-      const added = listBody.data?.find((item) => item.id === benchmarkId) ?? { id: benchmarkId, name: candidate.name, code: candidate.code, market: candidate.market, dataBasis: "index" as const, dataBasisLabel: null };
+      const listBody = await listResponse.json() as { data?: Array<Omit<DetailBaselineOption, "kind">> };
+      const listed = listBody.data?.find((item) => item.id === benchmarkId);
+      const added: DetailBaselineOption = listed
+        ? { ...listed, kind: "benchmark" }
+        : { id: benchmarkId, kind: "benchmark", name: candidate.name, code: candidate.code, market: candidate.market, dataBasisLabel: null };
       setAvailableBenchmarks((current) => [...current, added]);
-      selectBenchmark(benchmarkId);
+      selectBenchmark(`benchmark:${benchmarkId}`);
     } catch (error) {
       setBenchmarkSearchMessage(error instanceof Error ? error.message : "加入并同步指数失败。");
     } finally {
@@ -692,7 +704,7 @@ export function FundNavChart({
     },
     series: [
       ...plottedSeries.map((series, seriesIndex) => {
-      const isBenchmark = series.kind === "benchmark";
+      const isBaseline = seriesIndex === 1;
       const color = seriesColor(seriesIndex);
       const latestPoint = series.points.at(-1);
       return {
@@ -702,12 +714,12 @@ export function FundNavChart({
         smooth: 0.14,
         symbol: "circle",
         symbolSize: (value: unknown) => Array.isArray(value) && value[0] === latestPoint?.date ? 10 : 0,
-        lineStyle: { width: highlightedSeriesName === series.name ? 3 : isBenchmark ? 1.5 : 2, type: "solid" as const, color },
+        lineStyle: { width: highlightedSeriesName === series.name ? 3 : isBaseline ? 1.5 : 2, type: isBaseline ? "dashed" as const : "solid" as const, color },
         itemStyle: { color, borderColor: chartPalette.background, borderWidth: 2 },
-        areaStyle: !hasComparison && !isBenchmark ? { color, opacity: chartView === "drawdown" ? 0.12 : 0.08 } : undefined,
+        areaStyle: !hasComparison && !isBaseline ? { color, opacity: chartView === "drawdown" ? 0.12 : 0.08 } : undefined,
         endLabel: { show: false },
         labelLayout: { moveOverlap: "shiftY" as const },
-        markLine: !isBenchmark ? {
+        markLine: !isBaseline ? {
           silent: true,
           symbol: "none",
           lineStyle: { color: chartPalette.border },
@@ -781,11 +793,11 @@ export function FundNavChart({
             <div className="mt-2 text-sm" aria-live="polite">
               <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground"><p>{visibleRange?.to} 相对起点</p><p className="truncate text-right">{basisLabel(fundSeries.basis)}</p></div>
               <div className="mt-2 grid grid-cols-3 gap-px border border-border bg-border">
-                <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">基金收益</span><strong className={`mt-0.5 block ${returnToneClass(fundLatestReturn ?? 0)}`}>{formatReturn(fundLatestReturn)}</strong></p>
-                <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">基金年化</span><strong className={`mt-0.5 block ${returnToneClass(fundAnnualizedReturn ?? 0)}`}>{formatReturn(fundAnnualizedReturn)}</strong></p>
+                <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">主标的收益</span><strong className={`mt-0.5 block ${returnToneClass(fundLatestReturn ?? 0)}`}>{formatReturn(fundLatestReturn)}</strong></p>
+                <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">主标的年化</span><strong className={`mt-0.5 block ${returnToneClass(fundAnnualizedReturn ?? 0)}`}>{formatReturn(fundAnnualizedReturn)}</strong></p>
                 {benchmarkSeries ? <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">超额收益</span><strong className={`mt-0.5 block ${returnToneClass(excessReturn ?? 0)}`}>{formatReturn(excessReturn)}</strong></p> : <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">最新日期</span><strong className="mt-0.5 block font-mono text-[11px]">{visibleRange?.to}</strong></p>}
-                {benchmarkSeries ? <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">指数收益</span><strong className={`mt-0.5 block ${returnToneClass(benchmarkLatestReturn ?? 0)}`}>{formatReturn(benchmarkLatestReturn)}</strong></p> : null}
-                {benchmarkSeries ? <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">指数年化</span><strong className={`mt-0.5 block ${returnToneClass(benchmarkAnnualizedReturn ?? 0)}`}>{formatReturn(benchmarkAnnualizedReturn)}</strong></p> : null}
+                {benchmarkSeries ? <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">基准收益</span><strong className={`mt-0.5 block ${returnToneClass(benchmarkLatestReturn ?? 0)}`}>{formatReturn(benchmarkLatestReturn)}</strong></p> : null}
+                {benchmarkSeries ? <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">基准年化</span><strong className={`mt-0.5 block ${returnToneClass(benchmarkAnnualizedReturn ?? 0)}`}>{formatReturn(benchmarkAnnualizedReturn)}</strong></p> : null}
               </div>
               {drawdownRecovery ? (
                 <div data-testid="drawdown-recovery" className="mt-2 w-full border-l-2 border-[#8f6d58] pl-2 text-[11px] leading-5 text-muted-foreground">
@@ -805,7 +817,7 @@ export function FundNavChart({
             customFrom={customFrom}
             customTo={customTo}
             disabled={!availableRange}
-            marketCycleOptions={A_SHARE_MARKET_CYCLE_OPTIONS}
+            marketCycleOptions={primaryKind === "fund" || ["CN", "SH", "SZ"].includes(primaryMarket) ? A_SHARE_MARKET_CYCLE_OPTIONS : []}
             selectedMarketCycleId={selectedMarketCycleId}
             currentManagerStartDate={currentManagerStartDate}
             isCurrentManagerRangeSelected={isCurrentManagerRangeSelected}
@@ -824,16 +836,15 @@ export function FundNavChart({
               onClick={() => setIsBenchmarkMenuOpen((open) => !open)}
               className="min-h-10 min-w-32 border border-[var(--warm-highlight)] bg-background px-3 py-1.5 text-left text-xs font-medium text-foreground"
             >
-              {isLoadingComparison ? "加载指数…" : selectedBenchmark ? `对比：${selectedBenchmark.name}${selectedBenchmark.dataBasisLabel ? ` · ${selectedBenchmark.dataBasisLabel}` : ""}` : "对比指数"}
+              {isLoadingComparison ? "加载基准…" : selectedBenchmark ? `基准：${selectedBenchmark.name}${selectedBenchmark.dataBasisLabel ? ` · ${selectedBenchmark.dataBasisLabel}` : ""}` : "添加基准"}
               <span className="ml-2 text-muted-foreground" aria-hidden="true">⌄</span>
             </button>
             {isBenchmarkMenuOpen ? (
-              <div role="dialog" aria-label="选择对比指数" className="fixed left-1/2 top-24 z-[60] max-h-[min(22rem,calc(100dvh-12rem))] w-[min(16rem,calc(100vw-1.5rem))] -translate-x-1/2 overflow-y-auto border border-border bg-card p-3 shadow-xl layout-desktop:absolute layout-desktop:left-auto layout-desktop:right-0 layout-desktop:top-full layout-desktop:mt-2 layout-desktop:max-h-[min(32rem,calc(100vh-6rem))] layout-desktop:w-[min(18rem,calc(100vw-2rem))] layout-desktop:translate-x-0">
-                <label className="grid gap-1 text-xs text-muted-foreground">搜索指数库<input autoFocus aria-label="搜索基金详情指数" value={benchmarkQuery} onChange={(event) => updateBenchmarkQuery(event.target.value)} placeholder="输入指数名称或代码" autoComplete="off" className="border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent" /></label>
-                {selectedBenchmark ? <div className="mt-2 flex items-center justify-between gap-2 border border-accent bg-background px-3 py-2 text-sm"><span className="truncate">{selectedBenchmark.name}</span><button type="button" aria-label={`移除指数 ${selectedBenchmark.name}`} onClick={() => selectBenchmark("")} className="shrink-0 text-xs text-muted-foreground hover:text-foreground">移除</button></div> : null}
-                {benchmarkQuery.trim() ? (
-                  <div className="mt-2 max-h-64 overflow-y-auto border border-border">
-                    {matchedBenchmarks.map((benchmark) => <button key={benchmark.id} type="button" aria-label={`${benchmark.name} · ${benchmark.code}`} onClick={() => selectBenchmark(benchmark.id)} className="w-full border-b border-border px-3 py-2 text-left last:border-0 hover:bg-muted focus:bg-muted"><span className="block text-sm font-medium">{benchmark.name}</span><span className="mt-0.5 block font-mono text-[11px] text-muted-foreground">{benchmark.code} · {benchmark.market} · {benchmark.dataBasisLabel ?? "指数原始数据"}</span></button>)}
+              <div role="dialog" aria-label="选择基准" className="fixed left-1/2 top-24 z-[60] max-h-[min(22rem,calc(100dvh-12rem))] w-[min(16rem,calc(100vw-1.5rem))] -translate-x-1/2 overflow-y-auto border border-border bg-card p-3 shadow-xl layout-desktop:absolute layout-desktop:left-auto layout-desktop:right-0 layout-desktop:top-full layout-desktop:mt-2 layout-desktop:max-h-[min(32rem,calc(100vh-6rem))] layout-desktop:w-[min(18rem,calc(100vw-2rem))] layout-desktop:translate-x-0">
+                <label className="grid gap-1 text-xs text-muted-foreground">搜索研究库<input autoFocus aria-label="搜索基金或指数" value={benchmarkQuery} onChange={(event) => updateBenchmarkQuery(event.target.value)} placeholder="输入基金或指数名称、代码" autoComplete="off" className="border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent" /></label>
+                {selectedBenchmark ? <div className="mt-2 flex items-center justify-between gap-2 border border-accent bg-background px-3 py-2 text-sm"><span className="truncate">{selectedBenchmark.name}</span><button type="button" aria-label={`移除基准 ${selectedBenchmark.name}`} onClick={() => selectBenchmark("")} className="shrink-0 text-xs text-muted-foreground hover:text-foreground">移除</button></div> : null}
+                <div className="mt-2 max-h-64 overflow-y-auto border border-border">
+                    {matchedBenchmarks.map((benchmark) => <button key={`${benchmark.kind}:${benchmark.id}`} type="button" aria-label={`${benchmark.name} · ${benchmark.code}`} onClick={() => selectBenchmark(`${benchmark.kind}:${benchmark.id}`)} className="w-full border-b border-border px-3 py-2 text-left last:border-0 hover:bg-muted focus:bg-muted"><span className="block text-sm font-medium">{benchmark.name}</span><span className="mt-0.5 block font-mono text-[11px] text-muted-foreground">{benchmark.kind === "fund" ? "基金" : "指数"} · {benchmark.code} · {benchmark.market}{benchmark.dataBasisLabel ? ` · ${benchmark.dataBasisLabel}` : ""}</span></button>)}
                     {unmatchedPublicBenchmarks.map((candidate) => (
                       <div key={`${candidate.source}:${candidate.sourceSymbol}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b border-border px-3 py-2 last:border-0">
                         <div className="min-w-0"><p className="truncate text-sm font-medium">{candidate.name}</p><p className="mt-0.5 font-mono text-[11px] text-muted-foreground">{candidate.code} · {candidate.market} · {candidate.source}</p></div>
@@ -841,9 +852,8 @@ export function FundNavChart({
                       </div>
                     ))}
                     {isSearchingBenchmarks ? <p className="px-3 py-3 text-xs text-muted-foreground">正在搜索公开指数……</p> : null}
-                    {!isSearchingBenchmarks && !matchedBenchmarks.length && !unmatchedPublicBenchmarks.length ? <p className="px-3 py-4 text-sm text-muted-foreground">没有匹配的可用指数。</p> : null}
-                  </div>
-                ) : <p className="mt-2 text-xs leading-5 text-muted-foreground">输入名称或代码，可选择已有指数或加入公开指数。</p>}
+                    {!isSearchingBenchmarks && !matchedBenchmarks.length && !unmatchedPublicBenchmarks.length ? <p className="px-3 py-4 text-sm text-muted-foreground">没有匹配的可用基金或指数。</p> : null}
+                </div>
                 {benchmarkSearchMessage ? <p className="mt-2 text-xs leading-5 text-red-700" aria-live="polite">{benchmarkSearchMessage}</p> : null}
               </div>
             ) : null}
@@ -899,9 +909,9 @@ export function FundNavChart({
                   <div className="mt-3">
                     <p className="text-[11px] text-muted-foreground">共 {selectedRangeMetrics.days} 个自然日</p>
                     <div className="mt-2 grid grid-cols-3 gap-px bg-border">
-                      {selectedRangeMetrics.series.map((metric) => <div key={metric.id} className="bg-background p-2"><p className="truncate text-[10px] text-muted-foreground">{metric.kind === "fund" ? "基金" : "指数"}涨跌</p><p className={`mt-1 font-semibold ${returnToneClass(metric.returnRate)}`}>{formatReturn(metric.returnRate)}</p></div>)}
-                      {selectedRangeMetrics.series.find((metric) => metric.kind === "fund") ? <div className="bg-background p-2"><p className="text-[10px] text-muted-foreground">基金年化</p><p className={`mt-1 font-semibold ${returnToneClass(selectedRangeMetrics.series.find((metric) => metric.kind === "fund")?.annualizedReturn ?? 0)}`}>{formatReturn(selectedRangeMetrics.series.find((metric) => metric.kind === "fund")?.annualizedReturn)}</p></div> : null}
-                      {selectedRangeMetrics.series.find((metric) => metric.kind === "fund") ? <div className="bg-background p-2"><p className="text-[10px] text-muted-foreground">最大回撤</p><p className={`mt-1 font-semibold ${drawdownToneClass(selectedRangeMetrics.series.find((metric) => metric.kind === "fund")?.maxDrawdown ?? 0)}`}>{formatReturn(selectedRangeMetrics.series.find((metric) => metric.kind === "fund")?.maxDrawdown)}</p></div> : null}
+                      {selectedRangeMetrics.series.map((metric, index) => <div key={metric.id} className="bg-background p-2"><p className="truncate text-[10px] text-muted-foreground">{index === 0 ? "主标的" : "基准"}涨跌</p><p className={`mt-1 font-semibold ${returnToneClass(metric.returnRate)}`}>{formatReturn(metric.returnRate)}</p></div>)}
+                      {selectedRangeMetrics.series[0] ? <div className="bg-background p-2"><p className="text-[10px] text-muted-foreground">主标的年化</p><p className={`mt-1 font-semibold ${returnToneClass(selectedRangeMetrics.series[0].annualizedReturn ?? 0)}`}>{formatReturn(selectedRangeMetrics.series[0].annualizedReturn)}</p></div> : null}
+                      {selectedRangeMetrics.series[0] ? <div className="bg-background p-2"><p className="text-[10px] text-muted-foreground">最大回撤</p><p className={`mt-1 font-semibold ${drawdownToneClass(selectedRangeMetrics.series[0].maxDrawdown)}`}>{formatReturn(selectedRangeMetrics.series[0].maxDrawdown)}</p></div> : null}
                       {selectedRangeMetrics.excessReturn !== null ? <div className="bg-background p-2"><p className="text-[10px] text-muted-foreground">超额收益</p><p className={`mt-1 font-semibold ${returnToneClass(selectedRangeMetrics.excessReturn)}`}>{formatReturn(selectedRangeMetrics.excessReturn)}</p></div> : null}
                     </div>
                   </div>
@@ -925,7 +935,7 @@ export function FundNavChart({
           {selectedManagerMarker ? (
             <aside ref={managerCardRef} data-testid="manager-change-card" className="absolute right-3 top-14 z-20 w-[min(20rem,calc(100%-1.5rem))] border border-[#b42318]/40 bg-card/98 p-4 shadow-xl">
               <div className="flex items-start justify-between gap-3">
-                <div><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#b42318]">Manager Change</p><h3 className="mt-1 text-base font-semibold">基金经理更换</h3></div>
+                <h3 className="text-base font-semibold text-[#b42318]">基金经理更换</h3>
                 <button type="button" aria-label="关闭经理更换详情" onClick={() => setSelectedManagerMarkerDate(null)} className="px-1 text-lg leading-none text-muted-foreground">×</button>
               </div>
               <p className="mt-3 text-xs text-muted-foreground">对应净值日 {selectedManagerMarker.valuationDate} · 相对区间起点 {formatReturn(selectedManagerMarker.returnRate)}</p>
@@ -937,7 +947,7 @@ export function FundNavChart({
           {selectedDividendMarker ? (
             <aside ref={managerCardRef} data-testid="dividend-card" className="absolute right-3 top-14 z-20 w-[min(20rem,calc(100%-1.5rem))] border border-[#b7791f]/50 bg-card/98 p-4 shadow-xl">
               <div className="flex items-start justify-between gap-3">
-                <div><p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8a5b16]">Dividend Reinvested</p><h3 className="mt-1 text-base font-semibold">基金分红</h3></div>
+                <h3 className="text-base font-semibold text-[#8a5b16]">基金分红</h3>
                 <button type="button" aria-label="关闭基金分红详情" onClick={() => setSelectedDividendMarkerDate(null)} className="px-1 text-lg leading-none text-muted-foreground">×</button>
               </div>
               <dl className="mt-3 grid grid-cols-[5.5rem_1fr] gap-y-2 text-sm">
@@ -945,13 +955,12 @@ export function FundNavChart({
                 <dt className="text-muted-foreground">每份分红</dt><dd>{selectedDividendMarker.amount.toFixed(5)} 元</dd>
                 <dt className="text-muted-foreground">当日净值</dt><dd>{selectedDividendMarker.unitNav.toFixed(4)}</dd>
               </dl>
-              <p className="mt-3 border-l-2 border-[#b7791f] pl-3 text-xs leading-6 text-muted-foreground">业绩按除息日净值将现金分红转换为新增份额，计入分红再投资后的总回报。</p>
             </aside>
           ) : null}
         </div>
       ) : (
         <div className="flex h-[400px] items-center justify-center text-sm text-muted-foreground">
-          该时间区间内没有可展示的净值记录。
+          该时间区间内没有可展示的业绩记录。
         </div>
       )}
     </div>
