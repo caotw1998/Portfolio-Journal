@@ -59,6 +59,73 @@ describe("benchmark search persistence and sync", () => {
     await expect(prisma.benchmarkInstrument.findUniqueOrThrow({ where: { id: benchmark.id } })).resolves.toMatchObject({ status: "sync_error", lastSyncError: expect.any(String) });
   });
 
+  test.each([
+    { code: "399296", market: "CN", name: "创业板成长", sourceSymbol: undefined },
+    { code: "399372", market: "SZ", name: "大盘成长", sourceSymbol: "0.399372" },
+  ])("syncs $code from the official CNI full-history endpoint", async ({ code, market, name, sourceSymbol }) => {
+    const user = await prisma.user.create({ data: { email: createUniqueEmail(`benchmark-cni-${code}`), passwordHash: "test" } });
+    const benchmark = await createBenchmark(user.id, { code, market, name, sourceSymbol });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      expect(url.hostname).toBe("www.cnindex.com.cn");
+      expect(url.pathname).toBe("/market/market/getIndexDailyDataWithDataFormat");
+      expect(url.searchParams.get("indexCode")).toBe(code);
+      expect(url.searchParams.get("startDate")).toBe("1990-01-01");
+      expect(url.searchParams.get("frequency")).toBe("day");
+      return Response.json({
+        code: 200,
+        data: {
+          data: [
+            ["2026-07-24", 6380.1, 6450, 6420, 6370, 6412.45],
+            ["invalid", 6380.1, 6450, 6420, 6370, 9999],
+            ["2026-07-23", 6350, 6400, 6380, 6320, 6380.1],
+          ],
+        },
+      });
+    });
+
+    await syncBenchmarkHistory(user.id, benchmark.id, fetchMock);
+
+    const stored = await prisma.benchmarkInstrument.findUniqueOrThrow({ where: { id: benchmark.id }, include: { priceSnapshots: { orderBy: { date: "asc" } } } });
+    expect(stored.status).toBe("active");
+    expect(stored.lastSyncError).toBeNull();
+    expect(stored.priceSnapshots.map((point) => point.date.toISOString().slice(0, 10))).toEqual(["2026-07-23", "2026-07-24"]);
+    expect(stored.priceSnapshots.map((point) => point.closeValue.toNumber())).toEqual([6380.1, 6412.45]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("falls back to the exact Eastmoney symbol when CNI is unavailable", async () => {
+    const user = await prisma.user.create({ data: { email: createUniqueEmail("benchmark-cni-fallback"), passwordHash: "test" } });
+    const benchmark = await createBenchmark(user.id, { code: "399372", market: "SZ", name: "大盘成长", sourceSymbol: "0.399372" });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.hostname === "www.cnindex.com.cn") throw new TypeError("fetch failed");
+      expect(url.hostname).toBe("push2his.eastmoney.com");
+      expect(url.searchParams.get("secid")).toBe("0.399372");
+      return Response.json({ data: { klines: ["2026-07-23,0,6380.10", "2026-07-24,0,6412.45"] } });
+    });
+
+    await syncBenchmarkHistory(user.id, benchmark.id, fetchMock);
+
+    await expect(prisma.benchmarkInstrument.findUniqueOrThrow({ where: { id: benchmark.id } })).resolves.toMatchObject({ status: "active", lastSyncError: null });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("preserves stored history and records readable provider errors when both CNI and Eastmoney fail", async () => {
+    const user = await prisma.user.create({ data: { email: createUniqueEmail("benchmark-cni-errors"), passwordHash: "test" } });
+    const benchmark = await createBenchmark(user.id, { code: "399296", market: "CN", name: "创业板成长" });
+    await prisma.benchmarkPriceSnapshot.create({ data: { benchmarkInstrumentId: benchmark.id, date: new Date("2026-07-23T00:00:00Z"), closeValue: 6380.1, source: "public_market" } });
+    const fetchMock = vi.fn(async () => { throw new TypeError("fetch failed"); });
+
+    await expect(syncBenchmarkHistory(user.id, benchmark.id, fetchMock)).rejects.toThrow("国证指数同步失败（连接失败）；东方财富备用同步失败（连接失败）。");
+
+    const stored = await prisma.benchmarkInstrument.findUniqueOrThrow({ where: { id: benchmark.id }, include: { priceSnapshots: true } });
+    expect(stored.status).toBe("sync_error");
+    expect(stored.lastSyncError).toBe("国证指数同步失败（连接失败）；东方财富备用同步失败（连接失败）。");
+    expect(stored.priceSnapshots).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   test("does not substitute the ETF proxy for the official S&P total-return variant", async () => {
     const user = await prisma.user.create({ data: { email: createUniqueEmail("benchmark-total-return"), passwordHash: "test" } });
     const benchmark = await createBenchmark(user.id, { code: "SPCLLHCT", market: "GLOBAL", name: "标普中国A股大盘红利低波50全收益指数", sourceSymbol: "^SPCLLHCT" });

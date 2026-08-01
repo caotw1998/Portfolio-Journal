@@ -422,6 +422,58 @@ async function fetchChinaHistory(instrument: Pick<BenchmarkInstrument, "code" | 
   return fetchEastmoneyHistory(chinaSecId(instrument.code, instrument.market), fetchImpl);
 }
 
+async function fetchCnindexHistory(instrument: Pick<BenchmarkInstrument, "code">, fetchImpl: typeof fetch) {
+  const url = new URL("https://www.cnindex.com.cn/market/market/getIndexDailyDataWithDataFormat");
+  url.searchParams.set("indexCode", instrument.code);
+  url.searchParams.set("startDate", "1990-01-01");
+  url.searchParams.set("endDate", new Date().toISOString().slice(0, 10));
+  url.searchParams.set("frequency", "day");
+  const response = await fetchImpl(url, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(12_000),
+    headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" },
+  });
+  if (!response.ok) throw new ApiError(`国证指数官方接口不可用（${response.status}）。`, 502);
+  const payload = await response.json() as { data?: { data?: unknown[] } };
+  const points = (payload.data?.data ?? []).flatMap((row): HistoryPoint[] => {
+    if (!Array.isArray(row)) return [];
+    const date = typeof row[0] === "string" ? new Date(`${row[0]}T00:00:00Z`) : new Date(Number.NaN);
+    const closeValue = Number(row[5]);
+    return Number.isNaN(date.getTime()) || !Number.isFinite(closeValue) ? [] : [{ date, closeValue }];
+  });
+  if (!points.length) throw new ApiError("国证指数官方接口未返回历史。", 502);
+  return points;
+}
+
+function readableProviderError(error: unknown) {
+  if (!(error instanceof Error)) return "响应无效";
+  if (["AbortError", "TimeoutError"].includes(error.name)) return "请求超时";
+  if (error instanceof TypeError && error.message === "fetch failed") return "连接失败";
+  return error.message.replace(/[。.]$/, "");
+}
+
+async function fetchCnindexWithEastmoneyFallback(
+  instrument: Pick<BenchmarkInstrument, "code" | "market" | "sourceSymbol">,
+  fetchImpl: typeof fetch,
+) {
+  let cnindexError: unknown;
+  try {
+    return await fetchCnindexHistory(instrument, fetchImpl);
+  } catch (error) {
+    cnindexError = error;
+  }
+  try {
+    return instrument.sourceSymbol
+      ? await fetchEastmoneyHistory(instrument.sourceSymbol, fetchImpl)
+      : await fetchChinaHistory(instrument, fetchImpl);
+  } catch (eastmoneyError) {
+    throw new ApiError(
+      `国证指数同步失败（${readableProviderError(cnindexError)}）；东方财富备用同步失败（${readableProviderError(eastmoneyError)}）。`,
+      502,
+    );
+  }
+}
+
 async function fetchCsindexHistory(instrument: Pick<BenchmarkInstrument, "code">, fetchImpl: typeof fetch) {
   const url = new URL("https://www.csindex.com.cn/csindex-home/perf/index-perf");
   url.searchParams.set("indexCode", instrument.code);
@@ -472,12 +524,17 @@ async function fetchExactHistory(instrument: BenchmarkInstrument, fetchImpl: typ
   const market = instrument.market.toUpperCase();
   let points: HistoryPoint[];
   if (["CN", "SH", "SZ"].includes(market)) {
-    try {
-      points = await fetchCsindexHistory(instrument, fetchImpl);
-    } catch {
-      points = instrument.sourceSymbol
-        ? await fetchEastmoneyHistory(instrument.sourceSymbol, fetchImpl)
-        : await fetchChinaHistory(instrument, fetchImpl);
+    const usesCnindex = market === "SZ" || instrument.code.startsWith("399") || instrument.sourceSymbol?.startsWith("0.");
+    if (usesCnindex) {
+      points = await fetchCnindexWithEastmoneyFallback(instrument, fetchImpl);
+    } else {
+      try {
+        points = await fetchCsindexHistory(instrument, fetchImpl);
+      } catch {
+        points = instrument.sourceSymbol
+          ? await fetchEastmoneyHistory(instrument.sourceSymbol, fetchImpl)
+          : await fetchChinaHistory(instrument, fetchImpl);
+      }
     }
   } else if (instrument.sourceSymbol && /^\d+\./.test(instrument.sourceSymbol)) {
     try {
