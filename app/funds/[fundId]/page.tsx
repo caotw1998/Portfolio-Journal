@@ -75,10 +75,7 @@ export default async function FundPage({ params, searchParams }: { params: Promi
           <div id="performance" className="grid scroll-mt-20 gap-5 lg:scroll-mt-6">
 
             <section className="min-w-0 overflow-hidden border border-border bg-card p-4 lg:p-6">
-              <div className="flex items-start justify-between gap-3">
-                <h2 className="min-w-0 text-xl font-semibold lg:text-2xl">业绩与风险</h2>
-                <p className="max-w-40 text-right font-mono text-[10px] leading-5 text-muted-foreground lg:max-w-none lg:text-xs">分红再投资复权<br className="lg:hidden" />{fund.navSnapshots.length} 点 · {fund.dividendEvents.length} 次分红</p>
-              </div>
+              <h2 className="text-xl font-semibold lg:text-2xl">业绩与风险</h2>
               <div className="mt-2 min-w-0"><DetailPerformanceChart primaryId={fund.id} primaryKind="fund" primaryName={fund.name ?? fund.code} primaryMarket={fund.market} points={fund.navSnapshots.map((point) => { const valuationDate = date(point.valuationDate); return { date: valuationDate, unitNav: point.unitNav, accumulatedNav: point.accumulatedNav, dailyReturn: point.dailyReturn, dividendAmount: dividendsByDate.get(valuationDate) ?? 0 }; })} managerTenures={fund.managerTenures.map((manager) => ({ managerName: manager.managerName, startDate: manager.startDate ? date(manager.startDate) : null, endDate: manager.endDate ? date(manager.endDate) : null }))} baselines={baselines.filter((item) => !(item.kind === "fund" && item.id === fund.id))} chartSingleColor={user.chartSingleColor} chartSeriesColors={user.chartSeriesColors} /></div>
             </section>
           </div>

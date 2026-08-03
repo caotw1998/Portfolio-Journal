@@ -345,7 +345,7 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await page.getByRole("button", { name: "较早三期" }).click();
   await expect(page.getByText(/第 2 \/ 2 组 · 2024-06-30 至 2025-03-31/)).toBeVisible();
   await page.getByRole("button", { name: "较新三期" }).click();
-  await expect(page.getByText("2024-01-31 至 2026-07-01 · 4 个观测点")).toBeVisible();
+  await expect(page.getByText("2024-01-31 至 2026-07-01 · 4 个观测点")).toHaveCount(0);
   const fundCurveLabel = page.getByRole("button", { name: "易方达消费行业股票", exact: true });
   await expect(fundCurveLabel.locator("span")).toHaveCSS("background-color", "rgb(18, 52, 86)");
   await fundCurveLabel.click();
@@ -359,7 +359,7 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await page.getByLabel("搜索基金或指数").fill("标普A股大盘红利低波");
   await expect(page.getByText("标普中国A股大盘红利低波50指数")).toBeVisible();
   await page.getByRole("button", { name: "加入", exact: true }).click();
-  await expect(page.getByRole("button", { name: /基准：标普中国A股大盘红利低波50指数 · 515450 ETF 代理/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "基准：标普中国A股大盘红利低波50指数" })).toBeVisible();
   expect(browserErrors).toEqual([]);
   browserErrors.length = 0;
   await expect(page.getByRole("button", { name: /基准：标普中国A股大盘红利低波50指数/ })).toBeVisible();
@@ -450,20 +450,20 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await expect(page.getByRole("menuitem", { name: "2005—2007 牛市" })).toBeVisible();
   await page.getByRole("menuitem", { name: "现任经理以来 · 2025-04-12" }).click();
   await expect(page.getByRole("button", { name: "时间区间：现任经理以来" })).toBeVisible();
-  await expect(page.getByText("2025-06-01 至 2026-07-01 · 3 个观测点")).toBeVisible();
+  await expect(page.getByText("2025-06-01 至 2026-07-01 · 3 个观测点")).toHaveCount(0);
   await page.getByRole("button", { name: "时间区间：现任经理以来" }).click();
   await page.getByRole("menuitem", { name: "5年" }).click();
   await expect(page.getByRole("button", { name: "时间区间：5年" })).toBeVisible();
   await page.getByRole("button", { name: "时间区间：5年" }).click();
   await page.getByRole("menuitem", { name: "1年" }).click();
-  await expect(page.getByText("2025-08-01 至 2026-07-01 · 2 个观测点")).toBeVisible();
+  await expect(page.getByText("2025-08-01 至 2026-07-01 · 2 个观测点")).toHaveCount(0);
   await expect(page.getByText("+16.13%", { exact: true }).first()).toBeVisible();
   await page.getByRole("button", { name: "时间区间：1年" }).click();
   await page.getByRole("menuitem", { name: "自定义" }).click();
   await page.getByLabel("开始日期").fill("2024-01-01");
   await page.getByLabel("结束日期").fill("2024-12-31");
   await page.getByRole("button", { name: "应用", exact: true }).click();
-  await expect(page.getByText("2024-01-31 至 2024-01-31 · 1 个观测点")).toBeVisible();
+  await expect(page.getByText("2024-01-31 至 2024-01-31 · 1 个观测点")).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   const cleanFundDetailUrl = new URL(page.url());
   cleanFundDetailUrl.search = "";
@@ -487,6 +487,9 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
     await expect(disclosure).toHaveJSProperty("open", false);
   }
   const performanceSection = page.getByRole("heading", { name: "业绩与风险" }).locator("xpath=ancestor::section[1]");
+  await expect(performanceSection.getByText(/点 · \d+ 次分红/)).toHaveCount(0);
+  await expect(performanceSection.getByText(/至 .*个观测点/)).toHaveCount(0);
+  await expect(performanceSection.getByTestId("drawdown-recovery")).toHaveCount(0);
   await capitalSectionLink.click();
   await expect(page.getByTestId("capital-scale-chart")).toBeVisible();
   await expect(page.getByTestId("capital-flow-chart")).toBeVisible();
@@ -548,6 +551,13 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   const mobileRangeControls = page.getByTestId("fund-chart-range-controls-row");
   await expect(mobileRangeControls.getByRole("button", { name: "1月" })).toBeVisible();
   await expect(mobileRangeControls.getByRole("button", { name: "6月" })).toBeVisible();
+  const [mobileQuickRangeBox, mobileBenchmarkButtonBox] = await Promise.all([
+    mobileRangeControls.getByRole("button", { name: "1月" }).boundingBox(),
+    page.getByRole("button", { name: "添加基准" }).boundingBox(),
+  ]);
+  expect(mobileQuickRangeBox).not.toBeNull();
+  expect(mobileBenchmarkButtonBox).not.toBeNull();
+  expect(Math.abs(mobileBenchmarkButtonBox!.y - mobileQuickRangeBox!.y)).toBeLessThanOrEqual(2);
   await page.getByRole("button", { name: "时间区间：成立来" }).click();
   const mobileLongRangeMenu = page.getByRole("menu", { name: "选择时间区间" });
   const mobileLongRangeMenuBox = await mobileLongRangeMenu.boundingBox();
@@ -620,8 +630,25 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await expect(page.getByText("超额收益")).toBeVisible();
   const benchmarkMetricCells = page.getByTestId("fund-visible-metric-grid").locator(":scope > p");
   await expect(benchmarkMetricCells).toHaveCount(6);
+  await expect(benchmarkMetricCells.locator("span")).toHaveText(["成立来收益", "年化收益", "最大回撤", "基准收益", "基准年化", "超额收益"]);
   const benchmarkMetricCellBoxes = await benchmarkMetricCells.evaluateAll((cells) => cells.map((cell) => cell.getBoundingClientRect().toJSON()));
   expect(new Set(benchmarkMetricCellBoxes.map((box) => Math.round(box.y))).size).toBe(1);
+  const desktopRangeButtonBox = await page.getByTestId("fund-chart-range-controls-row").getByRole("button", { name: "1月" }).boundingBox();
+  const desktopBenchmarkButtonBox = await page.getByRole("button", { name: "基准：沪深300" }).boundingBox();
+  expect(desktopRangeButtonBox).not.toBeNull();
+  expect(desktopBenchmarkButtonBox).not.toBeNull();
+  expect(Math.abs(desktopBenchmarkButtonBox!.y - desktopRangeButtonBox!.y)).toBeLessThanOrEqual(2);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobileBenchmarkMetricBoxes = await benchmarkMetricCells.evaluateAll((cells) => cells.map((cell) => cell.getBoundingClientRect().toJSON()));
+  const mobileMetricRows = mobileBenchmarkMetricBoxes.reduce<Record<number, number>>((rows, box) => {
+    const row = Math.round(box.y);
+    rows[row] = (rows[row] ?? 0) + 1;
+    return rows;
+  }, {});
+  expect(Object.values(mobileMetricRows)).toEqual([3, 3]);
+  await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
+  await page.screenshot({ path: "/tmp/fund-detail-benchmark-metrics-mobile.png", fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({ path: "/tmp/fund-detail-benchmark-metrics-desktop.png", fullPage: true });
   const benchmarkCurveLabel = page.getByRole("button", { name: "沪深300", exact: true });
   await expect(benchmarkCurveLabel.locator("span")).toHaveCSS("background-color", "rgb(68, 85, 102)");

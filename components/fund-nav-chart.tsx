@@ -782,47 +782,15 @@ export function DetailPerformanceChart({
 
   return (
     <div>
-      <div className="grid gap-3 border-b border-border pb-4 xl:grid-cols-[minmax(18rem,1fr)_auto] xl:items-end layout-mobile:grid-cols-1 layout-desktop:grid-cols-[minmax(18rem,1fr)_auto] layout-desktop:items-end">
-        <div>
+      {primaryKind === "benchmark" ? (
+        <div className="border-b border-border pb-3">
           <p className="font-mono text-xs text-muted-foreground" aria-live="polite">
             {visibleRange
               ? `${visibleRange.from} 至 ${visibleRange.to} · ${chartDates.length} 个观测点`
               : "所选区间暂无可比较数据"}
           </p>
         </div>
-        <div className="flex min-w-0 flex-wrap items-center justify-start gap-1.5 xl:justify-end">
-          <div ref={benchmarkMenuRef} className="relative">
-            <button
-              type="button"
-              aria-expanded={isBenchmarkMenuOpen}
-              aria-haspopup="dialog"
-              onClick={() => setIsBenchmarkMenuOpen((open) => !open)}
-              className="min-h-10 min-w-32 border border-[var(--warm-highlight)] bg-background px-3 py-1.5 text-left text-xs font-medium text-foreground"
-            >
-              {isLoadingComparison ? "加载基准…" : selectedBenchmark ? `基准：${selectedBenchmark.name}${selectedBenchmark.dataBasisLabel ? ` · ${selectedBenchmark.dataBasisLabel}` : ""}` : "添加基准"}
-              <span className="ml-2 text-muted-foreground" aria-hidden="true">⌄</span>
-            </button>
-            {isBenchmarkMenuOpen ? (
-              <div role="dialog" aria-label="选择基准" className="fixed left-1/2 top-24 z-[60] max-h-[min(22rem,calc(100dvh-12rem))] w-[min(16rem,calc(100vw-1.5rem))] -translate-x-1/2 overflow-y-auto border border-border bg-card p-3 shadow-xl layout-desktop:absolute layout-desktop:left-auto layout-desktop:right-0 layout-desktop:top-full layout-desktop:mt-2 layout-desktop:max-h-[min(32rem,calc(100vh-6rem))] layout-desktop:w-[min(18rem,calc(100vw-2rem))] layout-desktop:translate-x-0">
-                <label className="grid gap-1 text-xs text-muted-foreground">搜索研究库<input autoFocus aria-label="搜索基金或指数" value={benchmarkQuery} onChange={(event) => updateBenchmarkQuery(event.target.value)} placeholder="输入基金或指数名称、代码" autoComplete="off" className="border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent" /></label>
-                {selectedBenchmark ? <div className="mt-2 flex items-center justify-between gap-2 border border-accent bg-background px-3 py-2 text-sm"><span className="truncate">{selectedBenchmark.name}</span><button type="button" aria-label={`移除基准 ${selectedBenchmark.name}`} onClick={() => selectBenchmark("")} className="shrink-0 text-xs text-muted-foreground hover:text-foreground">移除</button></div> : null}
-                <div className="mt-2 max-h-64 overflow-y-auto border border-border">
-                    {matchedBenchmarks.map((benchmark) => <button key={`${benchmark.kind}:${benchmark.id}`} type="button" aria-label={`${benchmark.name} · ${benchmark.code}`} onClick={() => selectBenchmark(`${benchmark.kind}:${benchmark.id}`)} className="w-full border-b border-border px-3 py-2 text-left last:border-0 hover:bg-muted focus:bg-muted"><span className="block text-sm font-medium">{benchmark.name}</span><span className="mt-0.5 block font-mono text-[11px] text-muted-foreground">{benchmark.kind === "fund" ? "基金" : "指数"} · {benchmark.code} · {benchmark.market}{benchmark.dataBasisLabel ? ` · ${benchmark.dataBasisLabel}` : ""}</span></button>)}
-                    {unmatchedPublicBenchmarks.map((candidate) => (
-                      <div key={`${candidate.source}:${candidate.sourceSymbol}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b border-border px-3 py-2 last:border-0">
-                        <div className="min-w-0"><p className="truncate text-sm font-medium">{candidate.name}</p><p className="mt-0.5 font-mono text-[11px] text-muted-foreground">{candidate.code} · {candidate.market} · {candidate.source}</p></div>
-                        <button type="button" onClick={() => void addPublicBenchmark(candidate)} disabled={addingBenchmarkSymbol !== null} className="min-h-9 shrink-0 border border-accent px-2 text-[11px] font-medium text-accent disabled:opacity-50">{addingBenchmarkSymbol === candidate.sourceSymbol ? "同步中…" : "加入"}</button>
-                      </div>
-                    ))}
-                    {isSearchingBenchmarks ? <p className="px-3 py-3 text-xs text-muted-foreground">正在搜索公开指数……</p> : null}
-                    {!isSearchingBenchmarks && !matchedBenchmarks.length && !unmatchedPublicBenchmarks.length ? <p className="px-3 py-4 text-sm text-muted-foreground">没有匹配的可用基金或指数。</p> : null}
-                </div>
-                {benchmarkSearchMessage ? <p className="mt-2 text-xs leading-5 text-red-700" aria-live="polite">{benchmarkSearchMessage}</p> : null}
-              </div>
-            ) : null}
-          </div>
-        </div>
-      </div>
+      ) : null}
 
       {rangeMessage || comparisonMessage ? (
         <p className="mt-3 border-l-2 border-[var(--warm-highlight)] pl-3 text-sm text-red-700" aria-live="polite">
@@ -846,16 +814,15 @@ export function DetailPerformanceChart({
           </div>
           {fundSeries?.points.length && chartDates.length >= 2 ? (
             <div data-testid="visible-range-performance-summary" className="mt-2 text-sm" aria-live="polite">
-              <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground"><p>{visibleRange?.to} 相对起点</p><p className="truncate text-right">{basisLabel(fundSeries.basis)}</p></div>
+              <div className="text-[11px] text-muted-foreground"><p>{visibleRange?.to} 相对起点</p></div>
               <div data-testid="fund-visible-metric-grid" className={`mt-1 grid grid-cols-3 gap-px border border-border bg-border ${benchmarkSeries ? "lg:grid-cols-6 layout-mobile:grid-cols-3 layout-desktop:grid-cols-6" : ""}`}>
                 <p className="min-w-0 bg-background px-1.5 py-1"><span className="block truncate text-[9px] leading-4 text-muted-foreground">{preset === "inception" ? "成立来收益" : "区间收益"}</span><strong className={`block text-sm leading-5 ${returnToneClass(fundLatestReturn ?? 0)}`}>{formatReturn(fundLatestReturn)}</strong></p>
                 <p className="min-w-0 bg-background px-1.5 py-1"><span className="block truncate text-[9px] leading-4 text-muted-foreground">年化收益</span><strong className={`block text-sm leading-5 ${returnToneClass(fundAnnualizedReturn ?? 0)}`}>{formatReturn(fundAnnualizedReturn)}</strong></p>
-                {benchmarkSeries ? <p className="min-w-0 bg-background px-1.5 py-1"><span className="block truncate text-[9px] leading-4 text-muted-foreground">超额收益</span><strong className={`block text-sm leading-5 ${returnToneClass(excessReturn ?? 0)}`}>{formatReturn(excessReturn)}</strong></p> : null}
+                <p className="min-w-0 bg-background px-1.5 py-1"><span className="block truncate text-[9px] leading-4 text-muted-foreground">最大回撤</span><strong className={`block text-sm leading-5 ${drawdownToneClass(drawdownRecovery?.maxDrawdown ?? 0)}`}>{drawdownRecovery ? formatReturn(drawdownRecovery.maxDrawdown) : "--"}</strong></p>
                 {benchmarkSeries ? <p className="min-w-0 bg-background px-1.5 py-1"><span className="block truncate text-[9px] leading-4 text-muted-foreground">基准收益</span><strong className={`block text-sm leading-5 ${returnToneClass(benchmarkLatestReturn ?? 0)}`}>{formatReturn(benchmarkLatestReturn)}</strong></p> : null}
                 {benchmarkSeries ? <p className="min-w-0 bg-background px-1.5 py-1"><span className="block truncate text-[9px] leading-4 text-muted-foreground">基准年化</span><strong className={`block text-sm leading-5 ${returnToneClass(benchmarkAnnualizedReturn ?? 0)}`}>{formatReturn(benchmarkAnnualizedReturn)}</strong></p> : null}
-                <p className="min-w-0 bg-background px-1.5 py-1"><span className="block truncate text-[9px] leading-4 text-muted-foreground">最大回撤</span><strong className={`block text-sm leading-5 ${drawdownToneClass(drawdownRecovery?.maxDrawdown ?? 0)}`}>{drawdownRecovery ? formatReturn(drawdownRecovery.maxDrawdown) : "--"}</strong></p>
+                {benchmarkSeries ? <p className="min-w-0 bg-background px-1.5 py-1"><span className="block truncate text-[9px] leading-4 text-muted-foreground">超额收益</span><strong className={`block text-sm leading-5 ${returnToneClass(excessReturn ?? 0)}`}>{formatReturn(excessReturn)}</strong></p> : null}
               </div>
-              {drawdownRecovery ? <p data-testid="drawdown-recovery" className="mt-0.5 border-l-2 border-[#8f6d58] pl-1.5 text-[10px] leading-4 text-muted-foreground">{drawdownRecovery.peakDate && drawdownRecovery.troughDate ? `${drawdownRecovery.peakDate} → ${drawdownRecovery.troughDate} · 下跌 ${drawdownRecovery.declineDays} 天 · ${drawdownRecovery.recoveryDate ? `${drawdownRecovery.recoveryDate} 修复` : "尚未修复"}` : "区间内无回撤修复过程"}</p> : null}
             </div>
           ) : fundSeries?.points.length ? <p className="mt-2 text-xs text-muted-foreground">区间内不足两个有效点，暂不计算收益率。</p> : null}
           <div
@@ -875,24 +842,57 @@ export function DetailPerformanceChart({
               onChartReady={(instance) => { chartInstanceRef.current = instance; }}
             />
           </div>
-          <div data-testid="fund-chart-range-controls-row" className="mt-1">
-            <ChartRangeControls
-              testId="fund-chart-range-controls"
-              preset={preset}
-              customFrom={customFrom}
-              customTo={customTo}
-              disabled={!availableRange}
-              marketCycleOptions={primaryKind === "fund" || ["CN", "SH", "SZ"].includes(primaryMarket) ? A_SHARE_MARKET_CYCLE_OPTIONS : []}
-              selectedMarketCycleId={selectedMarketCycleId}
-              currentManagerStartDate={currentManagerStartDate}
-              isCurrentManagerRangeSelected={isCurrentManagerRangeSelected}
-              onPresetChange={applyPreset}
-              onMarketCycleChange={applyMarketCycle}
-              onCurrentManagerRangeChange={applyCurrentManagerRange}
-              onCustomFromChange={setCustomFrom}
-              onCustomToChange={setCustomTo}
-              onApplyCustom={applyCustomRange}
-            />
+          <div data-testid="fund-chart-range-controls-row" className="mt-1 flex min-w-0 flex-wrap items-start gap-1">
+            <div className="min-w-0 flex-1 basis-[12rem]">
+              <ChartRangeControls
+                testId="fund-chart-range-controls"
+                preset={preset}
+                customFrom={customFrom}
+                customTo={customTo}
+                disabled={!availableRange}
+                marketCycleOptions={primaryKind === "fund" || ["CN", "SH", "SZ"].includes(primaryMarket) ? A_SHARE_MARKET_CYCLE_OPTIONS : []}
+                selectedMarketCycleId={selectedMarketCycleId}
+                currentManagerStartDate={currentManagerStartDate}
+                isCurrentManagerRangeSelected={isCurrentManagerRangeSelected}
+                onPresetChange={applyPreset}
+                onMarketCycleChange={applyMarketCycle}
+                onCurrentManagerRangeChange={applyCurrentManagerRange}
+                onCustomFromChange={setCustomFrom}
+                onCustomToChange={setCustomTo}
+                onApplyCustom={applyCustomRange}
+              />
+            </div>
+            <div ref={benchmarkMenuRef} data-testid="fund-benchmark-control" className="relative min-w-0 max-w-[45%]">
+              <button
+                type="button"
+                aria-label={selectedBenchmark ? `基准：${selectedBenchmark.name}` : "添加基准"}
+                aria-expanded={isBenchmarkMenuOpen}
+                aria-haspopup="dialog"
+                onClick={() => setIsBenchmarkMenuOpen((open) => !open)}
+                className="flex h-8 max-w-full items-center border border-[var(--warm-highlight)] bg-background px-2.5 text-left text-[11px] font-medium text-foreground"
+              >
+                <span className="truncate">{isLoadingComparison ? "加载基准…" : selectedBenchmark ? `基准：${selectedBenchmark.name}` : "添加基准"}</span>
+                <span className="ml-1.5 shrink-0 text-muted-foreground" aria-hidden="true">⌄</span>
+              </button>
+              {isBenchmarkMenuOpen ? (
+                <div role="dialog" aria-label="选择基准" className="fixed left-1/2 top-24 z-[60] max-h-[min(22rem,calc(100dvh-12rem))] w-[min(16rem,calc(100vw-1.5rem))] -translate-x-1/2 overflow-y-auto border border-border bg-card p-3 shadow-xl layout-desktop:absolute layout-desktop:bottom-full layout-desktop:left-auto layout-desktop:right-0 layout-desktop:top-auto layout-desktop:mb-2 layout-desktop:max-h-[min(32rem,calc(100vh-6rem))] layout-desktop:w-[min(18rem,calc(100vw-2rem))] layout-desktop:translate-x-0">
+                  <label className="grid gap-1 text-xs text-muted-foreground">搜索研究库<input autoFocus aria-label="搜索基金或指数" value={benchmarkQuery} onChange={(event) => updateBenchmarkQuery(event.target.value)} placeholder="输入基金或指数名称、代码" autoComplete="off" className="border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent" /></label>
+                  {selectedBenchmark ? <div className="mt-2 flex items-center justify-between gap-2 border border-accent bg-background px-3 py-2 text-sm"><span className="truncate">{selectedBenchmark.name}</span><button type="button" aria-label={`移除基准 ${selectedBenchmark.name}`} onClick={() => selectBenchmark("")} className="shrink-0 text-xs text-muted-foreground hover:text-foreground">移除</button></div> : null}
+                  <div className="mt-2 max-h-64 overflow-y-auto border border-border">
+                      {matchedBenchmarks.map((benchmark) => <button key={`${benchmark.kind}:${benchmark.id}`} type="button" aria-label={`${benchmark.name} · ${benchmark.code}`} onClick={() => selectBenchmark(`${benchmark.kind}:${benchmark.id}`)} className="w-full border-b border-border px-3 py-2 text-left last:border-0 hover:bg-muted focus:bg-muted"><span className="block text-sm font-medium">{benchmark.name}</span><span className="mt-0.5 block font-mono text-[11px] text-muted-foreground">{benchmark.kind === "fund" ? "基金" : "指数"} · {benchmark.code} · {benchmark.market}{benchmark.dataBasisLabel ? ` · ${benchmark.dataBasisLabel}` : ""}</span></button>)}
+                      {unmatchedPublicBenchmarks.map((candidate) => (
+                        <div key={`${candidate.source}:${candidate.sourceSymbol}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b border-border px-3 py-2 last:border-0">
+                          <div className="min-w-0"><p className="truncate text-sm font-medium">{candidate.name}</p><p className="mt-0.5 font-mono text-[11px] text-muted-foreground">{candidate.code} · {candidate.market} · {candidate.source}</p></div>
+                          <button type="button" onClick={() => void addPublicBenchmark(candidate)} disabled={addingBenchmarkSymbol !== null} className="min-h-9 shrink-0 border border-accent px-2 text-[11px] font-medium text-accent disabled:opacity-50">{addingBenchmarkSymbol === candidate.sourceSymbol ? "同步中…" : "加入"}</button>
+                        </div>
+                      ))}
+                      {isSearchingBenchmarks ? <p className="px-3 py-3 text-xs text-muted-foreground">正在搜索公开指数……</p> : null}
+                      {!isSearchingBenchmarks && !matchedBenchmarks.length && !unmatchedPublicBenchmarks.length ? <p className="px-3 py-4 text-sm text-muted-foreground">没有匹配的可用基金或指数。</p> : null}
+                  </div>
+                  {benchmarkSearchMessage ? <p className="mt-2 text-xs leading-5 text-red-700" aria-live="polite">{benchmarkSearchMessage}</p> : null}
+                </div>
+              ) : null}
+            </div>
           </div>
           <section data-testid="fund-performance-readout" aria-live="polite" className="border border-border bg-[color-mix(in_srgb,var(--card)_88%,var(--muted))] px-3 py-3 shadow-[inset_3px_0_0_var(--accent)]">
             {selectedTouchRange ? (
