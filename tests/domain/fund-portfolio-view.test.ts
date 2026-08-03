@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildPortfolioHoldingRows, buildTopTenIndustryAllocations, parseIndustryAllocations } from "@/lib/funds/portfolio-view";
+import { buildIndustryAllocations, buildPortfolioHoldingRows, buildTopTenIndustryAllocations, parseIndustryAllocations } from "@/lib/funds/portfolio-view";
 
 describe("fund portfolio view", () => {
   test("sorts by current weight and calculates changes against the previous report", () => {
@@ -63,6 +63,19 @@ describe("fund portfolio view", () => {
     ])).toEqual([
       { name: "主要消费", weight: 15.5 },
       { name: "信息技术", weight: 8.75 },
+    ]);
+  });
+
+  test("groups industries across a complete PCF basket", () => {
+    expect(buildIndustryAllocations([
+      { weight: 4, industry: "金融" },
+      { weight: 3, industry: "金融" },
+      { weight: 2, industry: "信息技术" },
+      { weight: null, industry: "工业" },
+      { weight: 1, industry: null },
+    ])).toEqual([
+      { name: "金融", weight: 7 },
+      { name: "信息技术", weight: 2 },
     ]);
   });
 });

@@ -1,5 +1,7 @@
 import { describe, expect, test } from "vitest";
+import { calculatePcfPortfolioWeights } from "@/lib/funds/pcf-portfolio";
 import { officialEtfPcfParsers } from "@/lib/funds/providers/official-etf-pcf";
+import { fetchChinaStockClose, stockPriceParsers } from "@/lib/funds/providers/stock-price";
 
 describe("official ETF PCF parsers", () => {
   test("normalizes an SSE PCF XML", () => {
@@ -53,5 +55,53 @@ describe("official ETF PCF parsers", () => {
 
   test("rejects malformed XML without identity fields", () => {
     expect(() => officialEtfPcfParsers.parseEtfPcfXml("<PCFFile />", "SZSE")).toThrow("缺少基金代码或交易日");
+  });
+});
+
+describe("ETF PCF portfolio weights", () => {
+  test("uses component market values instead of raw share quantities", () => {
+    expect(calculatePcfPortfolioWeights([
+      { id: "a", quantity: 100, referencePrice: 10, substitutionCashAmount: null, creationCashSubstitute: null, redemptionCashSubstitute: null },
+      { id: "b", quantity: 200, referencePrice: 5, substitutionCashAmount: null, creationCashSubstitute: null, redemptionCashSubstitute: null },
+      { id: "c", quantity: 0, referencePrice: null, substitutionCashAmount: 500, creationCashSubstitute: null, redemptionCashSubstitute: null },
+    ])).toEqual([
+      { id: "a", referenceValue: 1000, basketWeight: 40, valueSource: "market_close" },
+      { id: "b", referenceValue: 1000, basketWeight: 40, valueSource: "market_close" },
+      { id: "c", referenceValue: 500, basketWeight: 20, valueSource: "official_cash_substitute" },
+    ]);
+  });
+
+  test("does not normalize a partially resolved basket to a false 100 percent", () => {
+    expect(calculatePcfPortfolioWeights([
+      { id: "resolved", quantity: 100, referencePrice: 10, substitutionCashAmount: null, creationCashSubstitute: null, redemptionCashSubstitute: null },
+      { id: "missing", quantity: 100, referencePrice: null, substitutionCashAmount: null, creationCashSubstitute: null, redemptionCashSubstitute: null },
+    ])).toEqual([
+      { id: "resolved", referenceValue: 1000, basketWeight: null, valueSource: "market_close" },
+      { id: "missing", referenceValue: null, basketWeight: null, valueSource: null },
+    ]);
+  });
+});
+
+describe("A-share reference close", () => {
+  test("selects the last valid close on or before the PCF reference day", () => {
+    expect(stockPriceParsers.parseEastmoneyDailyClose({ data: { klines: [
+      "2026-07-30,10.10,10.20,10.30,10.00,100",
+      "2026-07-31,10.20,10.50,10.60,10.10,100",
+      "2026-08-03,10.50,10.80,10.90,10.40,100",
+    ] } }, "2026-07-31")).toEqual({ date: "2026-07-31", close: 10.5 });
+  });
+
+  test("requests an unadjusted SSE history for a Shanghai stock", async () => {
+    const fetchMock = async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      expect(url.searchParams.get("secid")).toBe("1.600519");
+      expect(url.searchParams.get("fqt")).toBe("0");
+      return Response.json({ data: { klines: ["2026-07-31,1400,1412.5,1420,1390,100"] } });
+    };
+    await expect(fetchChinaStockClose("600519", "2026-07-31", fetchMock)).resolves.toEqual({
+      date: "2026-07-31",
+      close: 1412.5,
+      source: "eastmoney",
+    });
   });
 });

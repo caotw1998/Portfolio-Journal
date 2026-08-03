@@ -277,6 +277,11 @@ model EtfPcfComponent {
   creationCashSubstitute   Decimal? @db.Decimal(24, 4)
   redemptionCashSubstitute Decimal? @db.Decimal(24, 4)
   market                   String?
+  referencePrice           Decimal? @db.Decimal(20, 8)
+  referencePriceDate       DateTime? @db.Date
+  referencePriceSource     String?
+  referenceValue           Decimal? @db.Decimal(24, 4)
+  basketWeight             Decimal? @db.Decimal(12, 8)
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
 

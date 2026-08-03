@@ -57,16 +57,22 @@ export type IndustryHoldingInput = {
   industry: string | null | undefined;
 };
 
-export function buildTopTenIndustryAllocations(holdings: IndustryHoldingInput[]): IndustryAllocation[] {
+export type CompleteIndustryHoldingInput = Omit<IndustryHoldingInput, "rank">;
+
+export function buildIndustryAllocations(holdings: CompleteIndustryHoldingInput[]): IndustryAllocation[] {
   const weightByIndustry = new Map<string, number>();
   for (const holding of holdings) {
     const industry = holding.industry?.trim();
-    if (holding.rank < 1 || holding.rank > 10 || !industry || holding.weight === null || !Number.isFinite(holding.weight) || holding.weight <= 0) continue;
+    if (!industry || holding.weight === null || !Number.isFinite(holding.weight) || holding.weight <= 0) continue;
     weightByIndustry.set(industry, (weightByIndustry.get(industry) ?? 0) + holding.weight);
   }
   return [...weightByIndustry.entries()]
     .map(([name, weight]) => ({ name, weight }))
     .sort((left, right) => right.weight - left.weight);
+}
+
+export function buildTopTenIndustryAllocations(holdings: IndustryHoldingInput[]): IndustryAllocation[] {
+  return buildIndustryAllocations(holdings.filter((holding) => holding.rank >= 1 && holding.rank <= 10));
 }
 
 export function parseIndustryAllocations(value: unknown): IndustryAllocation[] {

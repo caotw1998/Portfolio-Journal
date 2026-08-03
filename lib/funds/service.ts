@@ -5,7 +5,9 @@ import { prisma } from "@/lib/db/prisma";
 import { buildResearchComparison, type ResearchSeriesInput } from "@/lib/funds/comparison";
 import { classifyFundIdentity } from "@/lib/funds/classification";
 import { createEastmoneyFundProvider } from "@/lib/funds/providers/eastmoney";
+import { calculatePcfPortfolioWeights } from "@/lib/funds/pcf-portfolio";
 import { fetchOfficialEtfPcf } from "@/lib/funds/providers/official-etf-pcf";
+import { fetchChinaStockClose } from "@/lib/funds/providers/stock-price";
 import { fetchStockIndustry } from "@/lib/funds/providers/stock-industry";
 import type { ProviderResult } from "@/lib/funds/providers/types";
 import { buildDividendAdjustedSeries, calculateSeriesMetrics } from "@/lib/funds/metrics";
@@ -803,13 +805,7 @@ async function mapWithConcurrency<T>(items: T[], concurrency: number, worker: (i
   }));
 }
 
-async function enrichFundPortfolioReportIndustriesByFund(fundId: string, reportId: string, fetchImpl: typeof fetch = fetch, force = false) {
-  const report = await prisma.fundPortfolioReport.findFirst({
-    where: { id: reportId, fundId },
-    select: { holdings: { where: { kind: "stock", code: { not: null } }, select: { code: true, name: true } } },
-  });
-  if (!report) throw new ApiError("该报告期暂无公开持仓。", 404);
-  const holdingsByCode = new Map(report.holdings.flatMap((holding) => holding.code && /^\d{6}$/.test(holding.code) ? [[holding.code, holding.name] as const] : []));
+async function enrichStockIndustriesByCode(holdingsByCode: Map<string, string>, fetchImpl: typeof fetch, force: boolean) {
   const codes = Array.from(holdingsByCode.keys());
   const freshAfter = new Date(Date.now() - 180 * DAY_MS);
   const cached = codes.length ? await prisma.stockIndustryClassification.findMany({
@@ -843,19 +839,110 @@ async function enrichFundPortfolioReportIndustriesByFund(fundId: string, reportI
   });
 }
 
+async function enrichFundPortfolioReportIndustriesByFund(fundId: string, reportId: string, fetchImpl: typeof fetch = fetch, force = false) {
+  const report = await prisma.fundPortfolioReport.findFirst({
+    where: { id: reportId, fundId },
+    select: { holdings: { where: { kind: "stock", code: { not: null } }, select: { code: true, name: true } } },
+  });
+  if (!report) throw new ApiError("该报告期暂无公开持仓。", 404);
+  const holdingsByCode = new Map(report.holdings.flatMap((holding) => holding.code && /^\d{6}$/.test(holding.code) ? [[holding.code, holding.name] as const] : []));
+  return enrichStockIndustriesByCode(holdingsByCode, fetchImpl, force);
+}
+
 export async function enrichFundPortfolioReportIndustries(userId: string, fundId: string, reportId: string, fetchImpl: typeof fetch = fetch, force = false) {
   await requireUserFund(userId, fundId);
   return enrichFundPortfolioReportIndustriesByFund(fundId, reportId, fetchImpl, force);
 }
 
-export async function getEtfPcfSnapshot(userId: string, fundId: string, snapshotId?: string) {
-  await requireUserFund(userId, fundId);
+async function getEtfPcfSnapshotByFund(fundId: string, snapshotId?: string) {
   const snapshot = await prisma.etfPcfSnapshot.findFirst({
     where: { fundId, id: snapshotId },
     orderBy: { tradingDay: "desc" },
-    include: { components: { orderBy: [{ substitutionFlag: "asc" }, { instrumentCode: "asc" }] } },
+    include: { components: { orderBy: { instrumentCode: "asc" } } },
   });
-  return snapshot ? serializeFund(snapshot) : null;
+  if (!snapshot) return null;
+  const codes = snapshot.components.map((component) => component.instrumentCode).filter((code) => /^\d{6}$/.test(code));
+  const classifications = codes.length ? await prisma.stockIndustryClassification.findMany({
+    where: { code: { in: codes }, industry: { not: null }, source: "csindex", taxonomy: "中证一级行业" },
+    select: { code: true, industry: true, source: true },
+  }) : [];
+  const classificationByCode = new Map(classifications.map((item) => [item.code, item]));
+  const components = snapshot.components.map((component) => ({
+    ...component,
+    industry: classificationByCode.get(component.instrumentCode)?.industry ?? null,
+    industrySource: classificationByCode.get(component.instrumentCode)?.source ?? null,
+  })).sort((left, right) => {
+    const weightDifference = (right.basketWeight?.toNumber() ?? -Infinity) - (left.basketWeight?.toNumber() ?? -Infinity);
+    return weightDifference || left.instrumentCode.localeCompare(right.instrumentCode);
+  });
+  return serializeFund({ ...snapshot, components });
+}
+
+async function enrichEtfPcfSnapshotPortfolioByFund(fundId: string, snapshotId: string, fetchImpl: typeof fetch, force: boolean) {
+  const snapshot = await prisma.etfPcfSnapshot.findFirst({
+    where: { id: snapshotId, fundId },
+    include: { components: { orderBy: { instrumentCode: "asc" } } },
+  });
+  if (!snapshot) throw new ApiError("该交易日暂无申购赎回清单。", 404);
+  const holdingsByCode = new Map(snapshot.components.flatMap((component) => /^\d{6}$/.test(component.instrumentCode)
+    ? [[component.instrumentCode, component.instrumentName] as const]
+    : []));
+  await enrichStockIndustriesByCode(holdingsByCode, fetchImpl, force);
+
+  const referenceDay = (snapshot.previousTradingDay ?? snapshot.tradingDay).toISOString().slice(0, 10);
+  const priceByComponentId = new Map<string, { close: number; date: string; source: string } | null>();
+  await mapWithConcurrency(snapshot.components, 4, async (component) => {
+    const quantity = component.quantity?.toNumber() ?? null;
+    if (quantity === null || quantity <= 0 || !/^\d{6}$/.test(component.instrumentCode)) {
+      priceByComponentId.set(component.id, null);
+      return;
+    }
+    const cachedDate = component.referencePriceDate?.toISOString().slice(0, 10);
+    if (!force && component.referencePrice && cachedDate === referenceDay) {
+      priceByComponentId.set(component.id, { close: component.referencePrice.toNumber(), date: cachedDate, source: component.referencePriceSource ?? "eastmoney" });
+      return;
+    }
+    try {
+      const point = await fetchChinaStockClose(component.instrumentCode, referenceDay, fetchImpl);
+      priceByComponentId.set(component.id, point);
+    } catch {
+      priceByComponentId.set(component.id, null);
+    }
+  });
+  const weights = calculatePcfPortfolioWeights(snapshot.components.map((component) => ({
+    id: component.id,
+    quantity: component.quantity?.toNumber() ?? null,
+    referencePrice: priceByComponentId.get(component.id)?.close ?? null,
+    substitutionCashAmount: component.substitutionCashAmount?.toNumber() ?? null,
+    creationCashSubstitute: component.creationCashSubstitute?.toNumber() ?? null,
+    redemptionCashSubstitute: component.redemptionCashSubstitute?.toNumber() ?? null,
+  })));
+  const weightById = new Map(weights.map((component) => [component.id, component]));
+  await prisma.$transaction(snapshot.components.map((component) => {
+    const price = priceByComponentId.get(component.id) ?? null;
+    const weight = weightById.get(component.id);
+    return prisma.etfPcfComponent.update({
+      where: { id: component.id },
+      data: {
+        referencePrice: decimal(price?.close ?? null),
+        referencePriceDate: price ? new Date(`${price.date}T00:00:00Z`) : null,
+        referencePriceSource: weight?.valueSource === "official_cash_substitute" ? "official_cash_substitute" : price?.source ?? null,
+        referenceValue: decimal(weight?.referenceValue ?? null),
+        basketWeight: decimal(weight?.basketWeight ?? null),
+      },
+    });
+  }));
+  return getEtfPcfSnapshotByFund(fundId, snapshotId);
+}
+
+export async function enrichEtfPcfSnapshotPortfolio(userId: string, fundId: string, snapshotId: string, fetchImpl: typeof fetch = fetch, force = false) {
+  await requireUserFund(userId, fundId);
+  return enrichEtfPcfSnapshotPortfolioByFund(fundId, snapshotId, fetchImpl, force);
+}
+
+export async function getEtfPcfSnapshot(userId: string, fundId: string, snapshotId?: string) {
+  await requireUserFund(userId, fundId);
+  return getEtfPcfSnapshotByFund(fundId, snapshotId);
 }
 
 export async function syncAllFunds(userId: string, force = false) {

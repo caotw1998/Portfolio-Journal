@@ -671,6 +671,10 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await expect(qualitySectionLink).toHaveAttribute("aria-current", "location");
   await page.screenshot({ path: "/tmp/fund-detail-sticky-nav-desktop.png" });
   await page.screenshot({ path: "/tmp/fund-detail-data-performance-desktop.png", fullPage: true });
+  await prisma.stockIndustryClassification.createMany({ data: [
+    { code: "000001", name: "平安银行", industry: "金融", taxonomy: "中证一级行业", source: "csindex", status: "active", lastSuccessAt: new Date() },
+    { code: "000596", name: "古井贡酒", industry: "主要消费", taxonomy: "中证一级行业", source: "csindex", status: "active", lastSuccessAt: new Date() },
+  ] });
   const etfFund = await prisma.fund.create({ data: {
     code: "510300",
     name: "沪深300ETF测试",
@@ -680,15 +684,21 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
     followers: { create: { userId: user.id } },
     portfolioReports: { create: { reportDate: new Date("2026-06-30T00:00:00Z"), source: "eastmoney", holdings: { create: { kind: "stock", rank: 1, code: "600000", name: "浦发银行", weight: 3.2 } } } },
     etfPcfSnapshots: { create: { tradingDay: new Date("2026-07-28T00:00:00Z"), previousTradingDay: new Date("2026-07-27T00:00:00Z"), creationRedemptionUnit: 900000, nav: 4.7583, navPerCreationUnit: 4282452.21, cashComponent: -96606.21, estimatedCashComponent: 98023.21, maxCashRatio: 0.5, creationRedemptionStatus: "申购和赎回皆允许", source: "official_exchange", sourceUrl: "https://etf.sse.com.cn/fundlist/funddetail/?fundCode=510300", components: { create: [
-      { instrumentCode: "000001", instrumentName: "平安银行", quantity: 1600, substitutionFlag: "1", creationPremiumRate: 0.1, redemptionDiscountRate: 0.1, substitutionCashAmount: 17776 },
-      { instrumentCode: "000596", instrumentName: "古井贡酒", quantity: 0, substitutionFlag: "2", substitutionCashAmount: 0 },
+      { instrumentCode: "000001", instrumentName: "平安银行", quantity: 1600, substitutionFlag: "1", creationPremiumRate: 0.1, redemptionDiscountRate: 0.1, substitutionCashAmount: 17776, referenceValue: 72000, basketWeight: 60 },
+      { instrumentCode: "000596", instrumentName: "古井贡酒", quantity: 0, substitutionFlag: "2", substitutionCashAmount: 48000, referenceValue: 48000, basketWeight: 40, referencePriceSource: "official_cash_substitute" },
     ] } } },
   } });
   await page.goto(`/funds/${etfFund.id}`);
   await expect(page.getByRole("heading", { name: "申购赎回清单" })).toBeVisible();
   await expect(page.getByLabel("PCF 清单日期")).toHaveValue(/.+/);
-  await expect(page.getByText("PCF 是当日申赎篮子，不等同于基金全部实际资产持仓。")).toBeVisible();
-  await expect(page.getByText("允许现金替代").first()).toBeVisible();
+  await expect(page.getByTestId("compact-pcf-holdings-table").getByRole("columnheader")).toHaveText(["公司", "占比", "行业"]);
+  await expect(page.getByTestId("compact-pcf-holdings-table")).toContainText("60.00%");
+  await expect(page.getByTestId("compact-pcf-holdings-table")).toContainText("金融");
+  await expect(page.getByTestId("pcf-industry-allocation-chart")).toBeVisible();
+  await expect(page.getByTestId("compact-pcf-holdings-table")).not.toContainText("数量");
+  await expect(page.getByText("现金替代", { exact: false })).toHaveCount(0);
+  await expect(page.getByText("申购溢价", { exact: false })).toHaveCount(0);
+  await page.screenshot({ path: "/tmp/etf-pcf-portfolio-desktop.png", fullPage: true });
   await page.getByRole("button", { name: "定期报告持仓" }).click();
   await expect(page.getByRole("heading", { name: "公开持仓" })).toBeVisible();
   await expect(page.getByText("600000")).toBeVisible();
@@ -697,7 +707,10 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await expect(page.locator("html")).toHaveAttribute("data-layout-mode", "mobile");
   await page.getByRole("button", { name: "申购赎回清单" }).click();
   await expect(page.getByText("平安银行").last()).toBeVisible();
+  await expect(page.getByTestId("compact-pcf-holdings-table")).toBeVisible();
+  await expect(page.getByTestId("pcf-industry-allocation-chart")).toBeVisible();
   await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
+  await page.screenshot({ path: "/tmp/etf-pcf-portfolio-mobile.png", fullPage: true });
   await page.reload();
   await expect(page.getByRole("button", { name: "手机", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "电脑", exact: true }).click();

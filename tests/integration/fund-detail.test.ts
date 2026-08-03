@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { enrichFundPortfolioReportIndustries, getEtfPcfSnapshot, getFundDetail, getFundPortfolioReport, searchFunds, syncFund } from "@/lib/funds/service";
+import { enrichEtfPcfSnapshotPortfolio, enrichFundPortfolioReportIndustries, getEtfPcfSnapshot, getFundDetail, getFundPortfolioReport, searchFunds, syncFund } from "@/lib/funds/service";
 import { createUniqueEmail, resetDatabase } from "./helpers";
 
 describe("fund detail service", () => {
@@ -117,6 +117,50 @@ describe("fund detail service", () => {
     expect(detail.etfPcfSnapshots[0]).not.toHaveProperty("components");
     const snapshot = await getEtfPcfSnapshot(user.id, fund.id, detail.etfPcfSnapshots[1]?.id);
     expect(snapshot?.components).toEqual([expect.objectContaining({ instrumentCode: "000001", quantity: 1600 })]);
+  });
+
+  test("enriches an existing ETF PCF basket with complete weights and CSI industries", async () => {
+    const { prisma } = await import("@/lib/db/prisma");
+    const user = await prisma.user.create({ data: { email: createUniqueEmail("etf-pcf-portfolio"), passwordHash: "test" } });
+    const fund = await prisma.fund.create({ data: {
+      code: "510300",
+      market: "SSE",
+      vehicleType: "ETF",
+      followers: { create: { userId: user.id } },
+      etfPcfSnapshots: { create: {
+        tradingDay: new Date("2026-08-03T00:00:00Z"),
+        previousTradingDay: new Date("2026-07-31T00:00:00Z"),
+        source: "official_exchange",
+        components: { create: [
+          { instrumentCode: "600519", instrumentName: "贵州茅台", quantity: 100, substitutionFlag: "1" },
+          { instrumentCode: "000001", instrumentName: "平安银行", quantity: 200, substitutionFlag: "1" },
+          { instrumentCode: "000002", instrumentName: "万科A", quantity: 0, substitutionFlag: "2", substitutionCashAmount: 500 },
+        ] },
+      } },
+    } });
+    const snapshot = await prisma.etfPcfSnapshot.findFirstOrThrow({ where: { fundId: fund.id } });
+    const industryByCode: Record<string, string> = { "600519": "主要消费", "000001": "金融", "000002": "房地产" };
+    const closeByCode: Record<string, number> = { "600519": 10, "000001": 5 };
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input));
+      if (url.hostname === "www.csindex.com.cn") {
+        const body = JSON.parse(String(init?.body)) as { searchInput: string };
+        return Response.json({ data: [{ securityCode: body.searchInput, cics1stName: industryByCode[body.searchInput] }] });
+      }
+      const code = url.searchParams.get("secid")?.split(".").at(-1) ?? "";
+      return Response.json({ data: { klines: [`2026-07-31,1,${closeByCode[code]},1,1,100`] } });
+    });
+
+    const enriched = await enrichEtfPcfSnapshotPortfolio(user.id, fund.id, snapshot.id, fetchMock);
+    expect(enriched?.components).toEqual([
+      expect.objectContaining({ instrumentCode: "000001", basketWeight: 40, industry: "金融", industrySource: "csindex" }),
+      expect.objectContaining({ instrumentCode: "600519", basketWeight: 40, industry: "主要消费", industrySource: "csindex" }),
+      expect.objectContaining({ instrumentCode: "000002", basketWeight: 20, industry: "房地产", industrySource: "csindex", referencePriceSource: "official_cash_substitute" }),
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+
+    await enrichEtfPcfSnapshotPortfolio(user.id, fund.id, snapshot.id, fetchMock);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   test("repairs a legacy ETF identity before deciding whether to sync PCF", async () => {

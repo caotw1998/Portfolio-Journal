@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { ThemedEChart } from "@/components/charts/themed-echart";
 import { buildCapitalHistoryPeriods, selectCapitalHistoryPage } from "@/lib/funds/capital-history";
-import { buildPortfolioHoldingRows, buildTopTenIndustryAllocations } from "@/lib/funds/portfolio-view";
+import { buildIndustryAllocations, buildPortfolioHoldingRows, buildTopTenIndustryAllocations } from "@/lib/funds/portfolio-view";
 import { returnToneClass } from "@/lib/visual-tones";
 
 type Holding = {
@@ -292,31 +292,13 @@ export function FundPortfolioHistory({ reports, selectedReport, fundId }: { repo
 type EtfPcfSnapshot = {
   id: string;
   tradingDay: string;
-  previousTradingDay: string | null;
-  creationRedemptionUnit: number | null;
-  navPerCreationUnit: number | null;
-  nav: number | null;
-  cashComponent: number | null;
-  estimatedCashComponent: number | null;
-  maxCashRatio: number | null;
-  creationRedemptionStatus: string | null;
-  creationRedemptionMechanism: string | null;
-  publishIopv: boolean | null;
-  creationLimit: number | null;
-  redemptionLimit: number | null;
-  sourceUrl: string | null;
   components: Array<{
     id: string;
     instrumentCode: string;
     instrumentName: string;
-    quantity: number | null;
-    substitutionFlag: string;
-    creationPremiumRate: number | null;
-    redemptionDiscountRate: number | null;
-    substitutionCashAmount: number | null;
-    creationCashSubstitute: number | null;
-    redemptionCashSubstitute: number | null;
-    market: string | null;
+    basketWeight: number | null;
+    industry: string | null;
+    industrySource: string | null;
   }>;
 };
 
@@ -324,55 +306,100 @@ function pcfDate(value: string | null) {
   return value ? value.slice(0, 10) : "未披露";
 }
 
-function pcfNumber(value: number | null, suffix = "") {
-  return value === null ? "未披露" : `${value.toLocaleString("zh-CN", { maximumFractionDigits: 4 })}${suffix}`;
-}
-
-function pcfRate(value: number | null) {
-  return value === null ? "--" : `${(value * 100).toFixed(2)}%`;
-}
-
-function substitutionLabel(flag: string) {
-  return ({
-    "0": "禁止现金替代",
-    "1": "允许现金替代",
-    "2": "必须现金替代",
-    "3": "退补现金替代",
-    "4": "跨市场退补现金替代",
-    "5": "跨境退补现金替代",
-  } as Record<string, string>)[flag] ?? `替代标志 ${flag || "未披露"}`;
-}
-
 function EtfPcfSnapshotView({ snapshots, selectedSnapshot, fundId }: { snapshots: Array<{ id: string; tradingDay: string }>; selectedSnapshot: EtfPcfSnapshot | null; fundId: string }) {
   const router = useRouter();
-  if (!selectedSnapshot) {
+  const [enrichedSnapshot, setEnrichedSnapshot] = useState<{ selectedId: string; snapshot: EtfPcfSnapshot } | null>(null);
+  const [portfolioStatus, setPortfolioStatus] = useState<{ selectedId: string; message: string | null } | null>(null);
+  const snapshot = selectedSnapshot && enrichedSnapshot?.selectedId === selectedSnapshot.id ? enrichedSnapshot.snapshot : selectedSnapshot;
+  const portfolioMessage = selectedSnapshot && portfolioStatus?.selectedId === selectedSnapshot.id ? portfolioStatus.message : null;
+  const industries = useMemo(() => buildIndustryAllocations(snapshot?.components.map((component) => ({
+    weight: component.basketWeight,
+    industry: component.industry,
+  })) ?? []), [snapshot]);
+  const industryChartOption = useMemo<EChartsOption>(() => ({
+    animation: false,
+    color: ["#2f5d50", "#c98352", "#b7791f", "#8f6d58", "#6f8f7c", "#9c6f44", "#637c72", "#d2a679"],
+    tooltip: {
+      trigger: "item",
+      formatter: (parameters) => {
+        const item = Array.isArray(parameters) ? parameters[0] : parameters;
+        return `${String(item?.name ?? "")} ${Number(item?.value).toFixed(2)}%`;
+      },
+    },
+    legend: {
+      type: "plain",
+      bottom: 0,
+      left: "center",
+      itemWidth: 10,
+      itemHeight: 10,
+      textStyle: { color: "#5e675d", fontSize: 11 },
+      formatter: (name: string) => {
+        const item = industries.find((industry) => industry.name === name);
+        return item ? `${name} ${item.weight.toFixed(2)}%` : name;
+      },
+    },
+    series: [{
+      name: "行业配置",
+      type: "pie",
+      radius: ["43%", "68%"],
+      center: ["50%", "40%"],
+      avoidLabelOverlap: true,
+      label: { show: false },
+      emphasis: { scale: false },
+      data: industries.map((industry) => ({ name: industry.name, value: industry.weight })),
+    }],
+  }), [industries]);
+
+  useEffect(() => {
+    if (!selectedSnapshot || selectedSnapshot.components.every((component) => component.basketWeight !== null && component.industry)) return;
+    const controller = new AbortController();
+    void fetch(`/api/funds/${fundId}/pcf/${selectedSnapshot.id}/portfolio`, { method: "POST", signal: controller.signal })
+      .then(async (response) => {
+        const payload = await response.json() as { data?: EtfPcfSnapshot; error?: string };
+        if (!response.ok || !payload.data) throw new Error(payload.error ?? "申赎清单补全失败。");
+        setEnrichedSnapshot({ selectedId: selectedSnapshot.id, snapshot: payload.data });
+        setPortfolioStatus({
+          selectedId: selectedSnapshot.id,
+          message: payload.data.components.every((component) => component.basketWeight !== null)
+            ? null
+            : "部分成分缺少参考行情，暂不展示占比。",
+        });
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setPortfolioStatus({ selectedId: selectedSnapshot.id, message: error instanceof Error ? error.message : "申赎清单补全失败。" });
+      });
+    return () => controller.abort();
+  }, [fundId, selectedSnapshot]);
+
+  if (!snapshot) {
     return <section className="border border-border bg-card p-5 text-sm text-muted-foreground"><h2 className="text-xl font-semibold text-foreground">申购赎回清单</h2><p className="mt-3">官方交易所暂未返回该 ETF 的 PCF 清单。可重新同步后再试，定期报告持仓不会被当作 PCF 替代。</p></section>;
   }
-  const snapshot = selectedSnapshot;
   return (
-    <section className="min-w-0 border border-border bg-card p-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div><h2 className="text-2xl font-semibold">申购赎回清单</h2><p className="mt-2 text-xs leading-5 text-muted-foreground">PCF 是当日申赎篮子，不等同于基金全部实际资产持仓。</p></div>
-        <label className="grid gap-1 text-xs text-muted-foreground">清单日期<select aria-label="PCF 清单日期" value={snapshot.id} onChange={(event) => router.replace(`/funds/${fundId}?pcf=${event.target.value}#portfolio`, { scroll: false })} className="border border-border bg-background px-3 py-2 text-sm text-foreground">{snapshots.map((item) => <option key={item.id} value={item.id}>{pcfDate(item.tradingDay)}</option>)}</select></label>
-      </div>
-      <div className="mt-5 grid gap-px bg-border sm:grid-cols-2 lg:grid-cols-4 layout-mobile:grid-cols-1 layout-desktop:grid-cols-4">
-        {[
-          ["交易日", pcfDate(snapshot.tradingDay)],
-          ["最小申赎单位", pcfNumber(snapshot.creationRedemptionUnit, " 份")],
-          ["单位净值", pcfNumber(snapshot.nav)],
-          ["申赎单位净值", pcfNumber(snapshot.navPerCreationUnit, " 元")],
-          ["现金差额", pcfNumber(snapshot.cashComponent, " 元")],
-          ["预估现金部分", pcfNumber(snapshot.estimatedCashComponent, " 元")],
-          ["现金替代上限", pcfRate(snapshot.maxCashRatio)],
-          ["申赎状态", snapshot.creationRedemptionStatus ?? "未披露"],
-        ].map(([label, value]) => <div key={label} className="bg-background p-3"><p className="text-[11px] text-muted-foreground">{label}</p><p className="mt-1 text-sm font-semibold">{value}</p></div>)}
-      </div>
-      <div className="mt-5 hidden max-w-full overflow-x-auto md:block layout-mobile:hidden layout-desktop:block">
-        <table className="w-full min-w-[72rem] text-left text-sm"><thead className="border-b border-border text-xs text-muted-foreground"><tr><th className="py-3">证券</th><th>代码</th><th className="text-right">数量</th><th>现金替代</th><th className="text-right">申购溢价</th><th className="text-right">赎回折价</th><th className="text-right">替代金额</th><th className="text-right">申购替代</th><th className="text-right">赎回替代</th></tr></thead><tbody className="divide-y divide-border">{snapshot.components.map((component) => <tr key={component.id}><td className="py-3 font-medium">{component.instrumentName}</td><td className="font-mono text-xs text-muted-foreground">{component.instrumentCode}</td><td className="text-right">{pcfNumber(component.quantity)}</td><td>{substitutionLabel(component.substitutionFlag)}</td><td className="text-right">{pcfRate(component.creationPremiumRate)}</td><td className="text-right">{pcfRate(component.redemptionDiscountRate)}</td><td className="text-right">{pcfNumber(component.substitutionCashAmount)}</td><td className="text-right">{pcfNumber(component.creationCashSubstitute)}</td><td className="text-right">{pcfNumber(component.redemptionCashSubstitute)}</td></tr>)}</tbody></table>
-      </div>
-      <div className="mt-5 grid gap-2 md:hidden layout-mobile:grid layout-desktop:hidden">{snapshot.components.map((component) => <article key={component.id} className="border border-border bg-background p-3"><div className="flex items-start justify-between gap-3"><div><p className="font-medium">{component.instrumentName}</p><p className="mt-1 font-mono text-xs text-muted-foreground">{component.instrumentCode}</p></div><p className="text-right text-sm font-semibold">{pcfNumber(component.quantity, " 股")}</p></div><div className="mt-3 flex flex-wrap gap-2 text-[11px] text-muted-foreground"><span className="border border-border px-2 py-1">{substitutionLabel(component.substitutionFlag)}</span><span className="border border-border px-2 py-1">申购溢价 {pcfRate(component.creationPremiumRate)}</span><span className="border border-border px-2 py-1">赎回折价 {pcfRate(component.redemptionDiscountRate)}</span></div>{component.creationCashSubstitute !== null || component.redemptionCashSubstitute !== null ? <p className="mt-3 text-xs text-muted-foreground">申购替代 {pcfNumber(component.creationCashSubstitute, " 元")} · 赎回替代 {pcfNumber(component.redemptionCashSubstitute, " 元")}</p> : null}</article>)}</div>
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4 text-xs text-muted-foreground"><p>{snapshot.components.length} 项成分 · 前一交易日 {pcfDate(snapshot.previousTradingDay)}</p>{snapshot.sourceUrl ? <a href={snapshot.sourceUrl} target="_blank" rel="noreferrer" className="text-accent underline underline-offset-4">查看交易所官方来源 ↗</a> : null}</div>
-    </section>
+    <div className="grid min-w-0 gap-5 lg:grid-cols-[1.25fr_0.75fr] layout-mobile:grid-cols-1 layout-desktop:grid-cols-[1.25fr_0.75fr]">
+      <section className="min-w-0 border border-border bg-card p-3 sm:p-5">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <h2 className="text-2xl font-semibold">申购赎回清单</h2>
+          <label className="grid gap-1 text-xs text-muted-foreground">清单日期<select aria-label="PCF 清单日期" value={snapshot.id} onChange={(event) => router.replace(`/funds/${fundId}?pcf=${event.target.value}#portfolio`, { scroll: false })} className="border border-border bg-background px-3 py-2 text-sm text-foreground">{snapshots.map((item) => <option key={item.id} value={item.id}>{pcfDate(item.tradingDay)}</option>)}</select></label>
+        </div>
+        <div className="mt-3 min-w-0 border-y border-border" data-testid="compact-pcf-holdings-table">
+          <table className="w-full table-fixed border-collapse text-xs">
+            <colgroup><col className="w-[48%]" /><col className="w-[20%]" /><col className="w-[32%]" /></colgroup>
+            <thead><tr className="border-b border-border text-[10px] text-muted-foreground"><th scope="col" className="px-1 py-1.5 text-left font-normal sm:px-2 sm:py-2">公司</th><th scope="col" className="px-1 py-1.5 text-right font-normal sm:px-2 sm:py-2">占比</th><th scope="col" className="px-2 py-1.5 text-left font-normal sm:px-3 sm:py-2">行业</th></tr></thead>
+            <tbody className="divide-y divide-border">
+              {snapshot.components.map((component) => <tr key={component.id}><td className="min-w-0 px-1 py-1.5 align-middle sm:px-2 sm:py-2"><p className="truncate font-medium">{component.instrumentName}</p><p className="truncate font-mono text-[10px] leading-3 text-muted-foreground">{component.instrumentCode}</p></td><td className="px-1 py-1.5 text-right align-middle font-mono text-[11px] sm:px-2 sm:py-2">{component.basketWeight === null ? "" : `${component.basketWeight.toFixed(2)}%`}</td><td className="px-2 py-1.5 text-left align-middle text-[11px] leading-4 text-muted-foreground sm:px-3 sm:py-2" title={component.industrySource ?? undefined}>{component.industry ?? "暂未获取"}</td></tr>)}
+              {!snapshot.components.length ? <tr><td colSpan={3} className="py-5 text-sm text-muted-foreground">该交易日暂无清单成分。</td></tr> : null}
+            </tbody>
+          </table>
+        </div>
+        {portfolioMessage ? <p className="mt-2 text-[11px] text-muted-foreground" aria-live="polite">{portfolioMessage}</p> : null}
+      </section>
+      <section className="min-w-0 border border-border bg-card p-5">
+        <p className="font-mono text-xs text-muted-foreground">{pcfDate(snapshot.tradingDay)}</p>
+        <h2 className="mt-1 text-2xl font-semibold">行业配置</h2>
+        {industries.length ? <div data-testid="pcf-industry-allocation-chart" className="mt-2 min-w-0"><ThemedEChart option={industryChartOption} height={300} /></div> : <div data-testid="pcf-industry-allocation-empty" className="mt-5 flex min-h-48 items-center justify-center border border-dashed border-border bg-background px-5 text-center text-sm text-muted-foreground">清单暂缺完整的占比或行业数据。</div>}
+      </section>
+    </div>
   );
 }
 
