@@ -631,6 +631,9 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   const benchmarkMetricCells = page.getByTestId("fund-visible-metric-grid").locator(":scope > p");
   await expect(benchmarkMetricCells).toHaveCount(6);
   await expect(benchmarkMetricCells.locator("span")).toHaveText(["成立来收益", "年化收益", "最大回撤", "基准收益", "基准年化", "超额收益"]);
+  await page.getByRole("button", { name: "电脑", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-layout-mode", "desktop");
+  await expect(page.getByTestId("fund-visible-metric-grid")).toHaveCSS("grid-template-columns", /^\S+ \S+ \S+ \S+ \S+ \S+$/);
   const benchmarkMetricCellBoxes = await benchmarkMetricCells.evaluateAll((cells) => cells.map((cell) => cell.getBoundingClientRect().toJSON()));
   expect(new Set(benchmarkMetricCellBoxes.map((box) => Math.round(box.y))).size).toBe(1);
   const desktopRangeButtonBox = await page.getByTestId("fund-chart-range-controls-row").getByRole("button", { name: "1月" }).boundingBox();
@@ -639,6 +642,9 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   expect(desktopBenchmarkButtonBox).not.toBeNull();
   expect(Math.abs(desktopBenchmarkButtonBox!.y - desktopRangeButtonBox!.y)).toBeLessThanOrEqual(2);
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "手机", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-layout-mode", "mobile");
+  await expect(page.getByTestId("fund-visible-metric-grid")).toHaveCSS("grid-template-columns", /^\S+ \S+ \S+$/);
   const mobileBenchmarkMetricBoxes = await benchmarkMetricCells.evaluateAll((cells) => cells.map((cell) => cell.getBoundingClientRect().toJSON()));
   const mobileMetricRows = mobileBenchmarkMetricBoxes.reduce<Record<number, number>>((rows, box) => {
     const row = Math.round(box.y);
@@ -647,7 +653,10 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   }, {});
   expect(Object.values(mobileMetricRows)).toEqual([3, 3]);
   await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
-  await page.screenshot({ path: "/tmp/fund-detail-benchmark-metrics-mobile.png", fullPage: true });
+  await page.screenshot({ path: "/tmp/fund-detail-benchmark-metrics-forced-mobile.png", fullPage: true });
+  await page.getByRole("button", { name: "自动", exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-layout-mode", "auto");
+  await expect(page.getByTestId("fund-visible-metric-grid")).toHaveCSS("grid-template-columns", /^\S+ \S+ \S+$/);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({ path: "/tmp/fund-detail-benchmark-metrics-desktop.png", fullPage: true });
   const benchmarkCurveLabel = page.getByRole("button", { name: "沪深300", exact: true });

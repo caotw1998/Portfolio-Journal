@@ -71,6 +71,10 @@ html[data-layout-mode="mobile"] [class*="xl:grid-cols-"] {
   grid-template-columns: minmax(0, 1fr) !important;
 }
 
+html[data-layout-mode="mobile"] [data-mobile-grid-columns="3"] {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
 html[data-layout-mode="mobile"] [class~="hidden"][class*="md:grid"] {
   display: none !important;
 }

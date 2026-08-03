@@ -815,7 +815,7 @@ export function DetailPerformanceChart({
           {fundSeries?.points.length && chartDates.length >= 2 ? (
             <div data-testid="visible-range-performance-summary" className="mt-2 text-sm" aria-live="polite">
               <div className="text-[11px] text-muted-foreground"><p>{visibleRange?.to} 相对起点</p></div>
-              <div data-testid="fund-visible-metric-grid" className={`mt-1 grid grid-cols-3 gap-px border border-border bg-border ${benchmarkSeries ? "lg:grid-cols-6 layout-mobile:grid-cols-3 layout-desktop:grid-cols-6" : ""}`}>
+              <div data-testid="fund-visible-metric-grid" data-mobile-grid-columns="3" className={`mt-1 grid grid-cols-3 gap-px border border-border bg-border ${benchmarkSeries ? "lg:grid-cols-6 layout-mobile:grid-cols-3 layout-desktop:grid-cols-6" : ""}`}>
                 <p className="min-w-0 bg-background px-1.5 py-1"><span className="block truncate text-[9px] leading-4 text-muted-foreground">{preset === "inception" ? "成立来收益" : "区间收益"}</span><strong className={`block text-sm leading-5 ${returnToneClass(fundLatestReturn ?? 0)}`}>{formatReturn(fundLatestReturn)}</strong></p>
                 <p className="min-w-0 bg-background px-1.5 py-1"><span className="block truncate text-[9px] leading-4 text-muted-foreground">年化收益</span><strong className={`block text-sm leading-5 ${returnToneClass(fundAnnualizedReturn ?? 0)}`}>{formatReturn(fundAnnualizedReturn)}</strong></p>
                 <p className="min-w-0 bg-background px-1.5 py-1"><span className="block truncate text-[9px] leading-4 text-muted-foreground">最大回撤</span><strong className={`block text-sm leading-5 ${drawdownToneClass(drawdownRecovery?.maxDrawdown ?? 0)}`}>{drawdownRecovery ? formatReturn(drawdownRecovery.maxDrawdown) : "--"}</strong></p>
