@@ -1143,23 +1143,6 @@ export function BenchmarkManager({
             <p className="text-sm text-muted-foreground">多基准比较</p>
             <h2 className="mt-2 text-2xl font-semibold">归一化业绩对比</h2>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-3">
-            <ChartRangeControls
-              preset={rangePreset}
-              customFrom={customFrom}
-              customTo={customTo}
-              disabled={isPending || selectedIds.length === 0}
-              onPresetChange={applyPreset}
-              onCustomFromChange={setCustomFrom}
-              onCustomToChange={setCustomTo}
-              onApplyCustom={applyCustomRange}
-            />
-            {comparison.comparisonRange ? (
-              <span className="rounded-full border border-border bg-background px-3 py-1 text-xs text-muted-foreground">
-                {comparison.comparisonRange.from} 至 {comparison.comparisonRange.to}
-              </span>
-            ) : null}
-          </div>
         </div>
 
         <div className="relative mt-5 max-w-2xl">
@@ -1174,11 +1157,29 @@ export function BenchmarkManager({
           </div>
         ) : (
           <>
-            <div className="mt-6 min-w-0 overflow-hidden rounded-[1.25rem] border border-border/70 bg-[linear-gradient(180deg,rgba(47,93,80,0.08),transparent_36%),radial-gradient(circle_at_top_right,rgba(201,131,82,0.16),transparent_36%)] p-3">
+            <div data-testid="benchmark-comparison-chart" className="mt-6 min-w-0 overflow-hidden rounded-[1.25rem] border border-border/70 bg-[linear-gradient(180deg,rgba(47,93,80,0.08),transparent_36%),radial-gradient(circle_at_top_right,rgba(201,131,82,0.16),transparent_36%)] p-3">
               <ThemedEChart
                 height={340}
                 option={buildComparisonChartOption(comparison, chartSingleColor, chartSeriesColors)}
               />
+            </div>
+            <div data-testid="benchmark-comparison-range-controls-row" className="mt-1 flex flex-wrap items-start justify-between gap-2">
+              <ChartRangeControls
+                testId="benchmark-comparison-range-controls"
+                preset={rangePreset}
+                customFrom={customFrom}
+                customTo={customTo}
+                disabled={isPending || selectedIds.length === 0}
+                onPresetChange={applyPreset}
+                onCustomFromChange={setCustomFrom}
+                onCustomToChange={setCustomTo}
+                onApplyCustom={applyCustomRange}
+              />
+              {comparison.comparisonRange ? (
+                <span className="border border-border bg-background px-2 py-1 text-[10px] text-muted-foreground">
+                  {comparison.comparisonRange.from} 至 {comparison.comparisonRange.to}
+                </span>
+              ) : null}
             </div>
 
             <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4 layout-mobile:grid-cols-1 layout-desktop:grid-cols-4">

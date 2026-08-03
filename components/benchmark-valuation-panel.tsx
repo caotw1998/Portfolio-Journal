@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { EChartsOption, MarkAreaComponentOption } from "echarts";
 import { ThemedEChart } from "@/components/charts/themed-echart";
 import {
   calculateValuationSummary,
+  formatValuationAxisTick,
   type BenchmarkValuationBand,
   type BenchmarkValuationMetric,
   type BenchmarkValuationPoint,
@@ -30,6 +31,43 @@ const BAND_STYLES: Record<BenchmarkValuationBand, { text: string; background: st
   较高估: { text: "text-[#a45a12]", background: "bg-[#f8ead8]", line: "#d38a38" },
   极高估: { text: "text-[#a43b35]", background: "bg-[#f6dfdc]", line: "#d95c54" },
 };
+
+function ValuationRangeMenu({ range, onChange }: { range: BenchmarkValuationRange; onChange: (range: BenchmarkValuationRange) => void }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const activeLabel = RANGES.find((item) => item.key === range)?.label ?? "近3年";
+
+  useEffect(() => {
+    function closeOnOutsidePointer(event: PointerEvent) {
+      if (!containerRef.current?.contains(event.target as Node)) setIsOpen(false);
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      setIsOpen(false);
+      triggerRef.current?.focus();
+    }
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, []);
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button ref={triggerRef} type="button" aria-label={`估值时间区间：${activeLabel}`} aria-expanded={isOpen} aria-haspopup="menu" onClick={() => setIsOpen((open) => !open)} className="flex h-8 items-center border border-foreground bg-foreground px-2.5 text-[11px] font-medium text-background">
+        {activeLabel}<span className="ml-1.5" aria-hidden="true">⌄</span>
+      </button>
+      {isOpen ? (
+        <div role="menu" aria-label="选择估值时间区间" className="absolute bottom-full left-0 z-40 mb-2 w-36 border border-border bg-card p-1 shadow-xl">
+          {RANGES.map((item) => <button key={item.key} type="button" role="menuitem" aria-current={range === item.key ? "true" : undefined} onClick={() => { onChange(item.key); setIsOpen(false); }} className={range === item.key ? "min-h-10 w-full bg-muted px-3 py-2 text-left text-sm font-medium" : "min-h-10 w-full px-3 py-2 text-left text-sm hover:bg-muted focus:bg-muted"}>{item.label}</button>)}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function metricValue(point: BenchmarkValuationPoint, metric: BenchmarkValuationMetric) {
   return metric === "pe" ? point.peTtm : metric === "pb" ? point.pb : point.dividendYield;
@@ -73,10 +111,10 @@ export function BenchmarkValuationPanel({
     ])) : [];
     return {
       animationDuration: 250,
-      grid: { left: 54, right: 18, top: 20, bottom: 42 },
+      grid: { left: 8, right: 12, top: 20, bottom: 36, containLabel: true },
       tooltip: { trigger: "axis", valueFormatter: (value) => `${Number(value).toFixed(2)}${metricConfig.suffix}` },
       xAxis: { type: "time", axisLabel: { color: "#5e675d" }, axisLine: { lineStyle: { color: "#d7c8af" } }, splitLine: { show: false } },
-      yAxis: { type: "value", min: bounds[0], max: bounds.at(-1), axisLabel: { color: "#5e675d", formatter: `{value}${metricConfig.suffix}` }, splitLine: { lineStyle: { color: "#d7c8af", type: "dashed", opacity: 0.7 } } },
+      yAxis: { type: "value", min: bounds[0], max: bounds.at(-1), splitNumber: 4, axisLabel: { color: "#5e675d", showMinLabel: false, showMaxLabel: false, formatter: (value: number) => formatValuationAxisTick(value, metric) }, splitLine: { lineStyle: { color: "#d7c8af", type: "dashed", opacity: 0.7 } } },
       series: [{
         name: metricConfig.label,
         type: "line",
@@ -112,16 +150,18 @@ export function BenchmarkValuationPanel({
       </div>
 
       <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="text-sm font-semibold">{metricConfig.label} {formatValue(summary.current, metric)}</p>
           <p className="mt-1 text-xs text-muted-foreground">{summary.percentile === null ? `共 ${summary.observationCount} 个有效观测，至少 20 个才判断估值档位` : `历史分位 ${summary.percentile.toFixed(2)}% · 平均值 ${formatValue(summary.average, metric)} · ${summary.observationCount} 个观测`}</p>
         </div>
-        <div className="grid w-full grid-cols-4 gap-1 sm:w-auto" role="group" aria-label="估值历史区间">
-          {RANGES.map((item) => <button key={item.key} type="button" aria-pressed={range === item.key} onClick={() => setRange(item.key)} className={range === item.key ? "min-h-9 bg-foreground px-3 text-xs text-background" : "min-h-9 border border-border bg-background px-3 text-xs text-muted-foreground"}>{item.label}</button>)}
-        </div>
       </div>
 
-      {summary.points.length ? <div className="mt-2 min-w-0 overflow-hidden"><ThemedEChart option={option} height={380} /></div> : <div className="mt-4 flex min-h-48 items-center justify-center border border-dashed border-border bg-background px-6 text-center text-sm leading-6 text-muted-foreground">中证官方机器接口暂未披露该指数的{metricConfig.label}数据。</div>}
+      {summary.points.length ? (
+        <>
+          <div data-testid="benchmark-valuation-chart" className="mt-2 min-w-0 overflow-hidden"><ThemedEChart option={option} height={380} /></div>
+          <div data-testid="benchmark-valuation-range-controls-row" className="mt-1"><ValuationRangeMenu range={range} onChange={setRange} /></div>
+        </>
+      ) : <div className="mt-4 flex min-h-48 items-center justify-center border border-dashed border-border bg-background px-6 text-center text-sm leading-6 text-muted-foreground">中证官方机器接口暂未披露该指数的{metricConfig.label}数据。</div>}
       <p className="mt-3 border-l-2 border-[var(--warm-highlight)] pl-3 text-xs leading-5 text-muted-foreground">来源：中证指数有限公司。PB、股息率仅在官方接口披露时展示；{lastSyncError ? `本次部分同步异常：${lastSyncError}` : "未披露字段保持为空。"}</p>
     </section>
   );

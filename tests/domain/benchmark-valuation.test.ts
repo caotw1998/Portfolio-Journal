@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   calculateValuationSummary,
+  formatValuationAxisTick,
   parseCsindexCurrentValuationPayload,
   parseCsindexPePayload,
 } from "@/lib/domain/benchmark-valuations";
@@ -43,5 +44,12 @@ describe("benchmark valuation", () => {
       dividendYield: null,
     })), "pe", "3y");
     expect(summary).toMatchObject({ observationCount: 19, band: null, percentile: null, valuationPercentile: null });
+  });
+
+  test("formats valuation-axis ticks without exposing floating-point boundary noise", () => {
+    expect(formatValuationAxisTick(9.300899999999999, "pe")).toBe("9.3");
+    expect(formatValuationAxisTick(5.4691, "pb")).toBe("5.47");
+    expect(formatValuationAxisTick(4.290000000000001, "dividendYield")).toBe("4.29%");
+    expect(formatValuationAxisTick(9, "pe")).toBe("9");
   });
 });

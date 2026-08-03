@@ -791,22 +791,6 @@ export function DetailPerformanceChart({
           </p>
         </div>
         <div className="flex min-w-0 flex-wrap items-center justify-start gap-1.5 xl:justify-end">
-          <ChartRangeControls
-            preset={preset}
-            customFrom={customFrom}
-            customTo={customTo}
-            disabled={!availableRange}
-            marketCycleOptions={primaryKind === "fund" || ["CN", "SH", "SZ"].includes(primaryMarket) ? A_SHARE_MARKET_CYCLE_OPTIONS : []}
-            selectedMarketCycleId={selectedMarketCycleId}
-            currentManagerStartDate={currentManagerStartDate}
-            isCurrentManagerRangeSelected={isCurrentManagerRangeSelected}
-            onPresetChange={applyPreset}
-            onMarketCycleChange={applyMarketCycle}
-            onCurrentManagerRangeChange={applyCurrentManagerRange}
-            onCustomFromChange={setCustomFrom}
-            onCustomToChange={setCustomTo}
-            onApplyCustom={applyCustomRange}
-          />
           <div ref={benchmarkMenuRef} className="relative">
             <button
               type="button"
@@ -863,15 +847,15 @@ export function DetailPerformanceChart({
           {fundSeries?.points.length && chartDates.length >= 2 ? (
             <div data-testid="visible-range-performance-summary" className="mt-2 text-sm" aria-live="polite">
               <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground"><p>{visibleRange?.to} 相对起点</p><p className="truncate text-right">{basisLabel(fundSeries.basis)}</p></div>
-              <div className="mt-1 grid grid-cols-2 gap-px border border-border bg-border sm:grid-cols-3">
-                <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">{preset === "inception" ? "成立来收益" : "区间收益"}</span><strong className={`mt-0.5 block ${returnToneClass(fundLatestReturn ?? 0)}`}>{formatReturn(fundLatestReturn)}</strong></p>
-                <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">年化收益</span><strong className={`mt-0.5 block ${returnToneClass(fundAnnualizedReturn ?? 0)}`}>{formatReturn(fundAnnualizedReturn)}</strong></p>
-                {benchmarkSeries ? <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">超额收益</span><strong className={`mt-0.5 block ${returnToneClass(excessReturn ?? 0)}`}>{formatReturn(excessReturn)}</strong></p> : null}
-                {benchmarkSeries ? <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">基准收益</span><strong className={`mt-0.5 block ${returnToneClass(benchmarkLatestReturn ?? 0)}`}>{formatReturn(benchmarkLatestReturn)}</strong></p> : null}
-                {benchmarkSeries ? <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">基准年化</span><strong className={`mt-0.5 block ${returnToneClass(benchmarkAnnualizedReturn ?? 0)}`}>{formatReturn(benchmarkAnnualizedReturn)}</strong></p> : null}
-                <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">最大回撤</span><strong className={`mt-0.5 block ${drawdownToneClass(drawdownRecovery?.maxDrawdown ?? 0)}`}>{drawdownRecovery ? formatReturn(drawdownRecovery.maxDrawdown) : "--"}</strong></p>
+              <div data-testid="fund-visible-metric-grid" className={`mt-1 grid grid-cols-3 gap-px border border-border bg-border ${benchmarkSeries ? "lg:grid-cols-6 layout-mobile:grid-cols-3 layout-desktop:grid-cols-6" : ""}`}>
+                <p className="min-w-0 bg-background px-1.5 py-1"><span className="block truncate text-[9px] leading-4 text-muted-foreground">{preset === "inception" ? "成立来收益" : "区间收益"}</span><strong className={`block text-sm leading-5 ${returnToneClass(fundLatestReturn ?? 0)}`}>{formatReturn(fundLatestReturn)}</strong></p>
+                <p className="min-w-0 bg-background px-1.5 py-1"><span className="block truncate text-[9px] leading-4 text-muted-foreground">年化收益</span><strong className={`block text-sm leading-5 ${returnToneClass(fundAnnualizedReturn ?? 0)}`}>{formatReturn(fundAnnualizedReturn)}</strong></p>
+                {benchmarkSeries ? <p className="min-w-0 bg-background px-1.5 py-1"><span className="block truncate text-[9px] leading-4 text-muted-foreground">超额收益</span><strong className={`block text-sm leading-5 ${returnToneClass(excessReturn ?? 0)}`}>{formatReturn(excessReturn)}</strong></p> : null}
+                {benchmarkSeries ? <p className="min-w-0 bg-background px-1.5 py-1"><span className="block truncate text-[9px] leading-4 text-muted-foreground">基准收益</span><strong className={`block text-sm leading-5 ${returnToneClass(benchmarkLatestReturn ?? 0)}`}>{formatReturn(benchmarkLatestReturn)}</strong></p> : null}
+                {benchmarkSeries ? <p className="min-w-0 bg-background px-1.5 py-1"><span className="block truncate text-[9px] leading-4 text-muted-foreground">基准年化</span><strong className={`block text-sm leading-5 ${returnToneClass(benchmarkAnnualizedReturn ?? 0)}`}>{formatReturn(benchmarkAnnualizedReturn)}</strong></p> : null}
+                <p className="min-w-0 bg-background px-1.5 py-1"><span className="block truncate text-[9px] leading-4 text-muted-foreground">最大回撤</span><strong className={`block text-sm leading-5 ${drawdownToneClass(drawdownRecovery?.maxDrawdown ?? 0)}`}>{drawdownRecovery ? formatReturn(drawdownRecovery.maxDrawdown) : "--"}</strong></p>
               </div>
-              {drawdownRecovery ? <p data-testid="drawdown-recovery" className="mt-1 border-l-2 border-[#8f6d58] pl-2 text-[11px] leading-5 text-muted-foreground">{drawdownRecovery.peakDate && drawdownRecovery.troughDate ? `${drawdownRecovery.peakDate} → ${drawdownRecovery.troughDate} · 下跌 ${drawdownRecovery.declineDays} 天 · ${drawdownRecovery.recoveryDate ? `${drawdownRecovery.recoveryDate} 修复` : "尚未修复"}` : "区间内无回撤修复过程"}</p> : null}
+              {drawdownRecovery ? <p data-testid="drawdown-recovery" className="mt-0.5 border-l-2 border-[#8f6d58] pl-1.5 text-[10px] leading-4 text-muted-foreground">{drawdownRecovery.peakDate && drawdownRecovery.troughDate ? `${drawdownRecovery.peakDate} → ${drawdownRecovery.troughDate} · 下跌 ${drawdownRecovery.declineDays} 天 · ${drawdownRecovery.recoveryDate ? `${drawdownRecovery.recoveryDate} 修复` : "尚未修复"}` : "区间内无回撤修复过程"}</p> : null}
             </div>
           ) : fundSeries?.points.length ? <p className="mt-2 text-xs text-muted-foreground">区间内不足两个有效点，暂不计算收益率。</p> : null}
           <div
@@ -889,6 +873,25 @@ export function DetailPerformanceChart({
               onClick={handleChartClick}
               onAxisPointer={handleAxisPointer}
               onChartReady={(instance) => { chartInstanceRef.current = instance; }}
+            />
+          </div>
+          <div data-testid="fund-chart-range-controls-row" className="mt-1">
+            <ChartRangeControls
+              testId="fund-chart-range-controls"
+              preset={preset}
+              customFrom={customFrom}
+              customTo={customTo}
+              disabled={!availableRange}
+              marketCycleOptions={primaryKind === "fund" || ["CN", "SH", "SZ"].includes(primaryMarket) ? A_SHARE_MARKET_CYCLE_OPTIONS : []}
+              selectedMarketCycleId={selectedMarketCycleId}
+              currentManagerStartDate={currentManagerStartDate}
+              isCurrentManagerRangeSelected={isCurrentManagerRangeSelected}
+              onPresetChange={applyPreset}
+              onMarketCycleChange={applyMarketCycle}
+              onCurrentManagerRangeChange={applyCurrentManagerRange}
+              onCustomFromChange={setCustomFrom}
+              onCustomToChange={setCustomTo}
+              onApplyCustom={applyCustomRange}
             />
           </div>
           <section data-testid="fund-performance-readout" aria-live="polite" className="border border-border bg-[color-mix(in_srgb,var(--card)_88%,var(--muted))] px-3 py-3 shadow-[inset_3px_0_0_var(--accent)]">

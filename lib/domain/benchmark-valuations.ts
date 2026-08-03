@@ -68,6 +68,12 @@ function metricValue(point: BenchmarkValuationPoint, metric: BenchmarkValuationM
   return metric === "pe" ? point.peTtm : metric === "pb" ? point.pb : point.dividendYield;
 }
 
+export function formatValuationAxisTick(value: number, metric: BenchmarkValuationMetric) {
+  if (!Number.isFinite(value)) return "--";
+  const rounded = Number(value.toFixed(2));
+  return `${rounded}${metric === "dividendYield" ? "%" : ""}`;
+}
+
 function quantile(sorted: number[], percentile: number) {
   if (!sorted.length) return null;
   const position = (sorted.length - 1) * percentile;
