@@ -22,6 +22,7 @@ async function main() {
       await tx.fundSourceSnapshot.deleteMany();
       await tx.userFund.deleteMany();
       await tx.benchmarkPriceSnapshot.deleteMany();
+      await tx.benchmarkValuationSnapshot.deleteMany();
       await tx.benchmarkInstrument.deleteMany();
       await tx.fund.deleteMany();
       await tx.session.deleteMany();
@@ -39,6 +40,7 @@ async function main() {
     await insert(tx.fundScaleSnapshot, (tables.fundScaleSnapshots ?? []).map((row) => ({ ...row, holderCount: row.holderCount === null ? null : BigInt(row.holderCount) })));
     await insert(tx.fundSourceSnapshot, tables.fundSourceSnapshots);
     await insert(tx.benchmarkPriceSnapshot, tables.benchmarkPriceSnapshots);
+    await insert(tx.benchmarkValuationSnapshot, tables.benchmarkValuationSnapshots);
     await insert(tx.auditLog, tables.auditLogs);
   });
   await prisma.$disconnect();

@@ -50,6 +50,54 @@ describe("benchmark search persistence and sync", () => {
     expect(stored.priceSnapshots.map((point) => point.closeValue.toNumber())).toEqual([6380.1, 6412.45]);
   });
 
+  test("stores official CSI valuation history and current disclosed fields", async () => {
+    const user = await prisma.user.create({ data: { email: createUniqueEmail("benchmark-valuation"), passwordHash: "test" } });
+    const benchmark = await createBenchmark(user.id, { code: "000300", market: "CN", name: "沪深300指数" });
+    const valuationDates = Array.from({ length: 20 }, (_, index) => new Date(Date.UTC(2026, 6, 15 + index)).toISOString().slice(0, 10).replaceAll("-", ""));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/index-perf")) return Response.json({ data: [
+        { tradeDate: "20260802", close: 4100 },
+        { tradeDate: "20260803", close: 4120 },
+      ] });
+      if (url.pathname.endsWith("/indexCsiDsPe")) return Response.json({ code: "200", success: true, data: valuationDates.map((tradeDate, index) => ({ tradeDate, peg: 13 + index / 10 })) });
+      if (url.pathname.endsWith("/indexValuation")) return Response.json({ code: "200", success: true, data: { tradeDate: "20260803", indexValuations: [
+        { indexName: "沪深300", peg: 14.23, pb: 1.4, dp: 2.55 },
+      ] } });
+      return new Response("not found", { status: 404 });
+    });
+
+    await syncBenchmarkHistory(user.id, benchmark.id, fetchMock);
+    const stored = await prisma.benchmarkInstrument.findUniqueOrThrow({ where: { id: benchmark.id }, include: { valuationSnapshots: { orderBy: { date: "asc" } } } });
+    expect(stored.status).toBe("active");
+    expect(stored.valuationLastSyncError).toBeNull();
+    expect(stored.valuationSnapshots).toHaveLength(20);
+    expect(stored.valuationSnapshots.at(-1)).toMatchObject({ source: "csindex" });
+    expect(stored.valuationSnapshots.at(-1)?.peTtm?.toNumber()).toBe(14.23);
+    expect(stored.valuationSnapshots.at(-1)?.pb?.toNumber()).toBe(1.4);
+    expect(stored.valuationSnapshots.at(-1)?.dividendYield?.toNumber()).toBe(2.55);
+  });
+
+  test("does not fail price sync when optional valuation endpoints fail", async () => {
+    const user = await prisma.user.create({ data: { email: createUniqueEmail("benchmark-valuation-error"), passwordHash: "test" } });
+    const benchmark = await createBenchmark(user.id, { code: "000300", market: "CN", name: "沪深300指数" });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/index-perf")) return Response.json({ data: [
+        { tradeDate: "20260802", close: 4100 },
+        { tradeDate: "20260803", close: 4120 },
+      ] });
+      return new Response("unavailable", { status: 503 });
+    });
+
+    await syncBenchmarkHistory(user.id, benchmark.id, fetchMock);
+    await expect(prisma.benchmarkInstrument.findUniqueOrThrow({ where: { id: benchmark.id } })).resolves.toMatchObject({
+      status: "active",
+      lastSyncError: null,
+      valuationLastSyncError: expect.stringContaining("中证估值同步失败"),
+    });
+  });
+
   test("keeps the instrument and records a retryable sync error", async () => {
     const user = await prisma.user.create({ data: { email: createUniqueEmail("benchmark-error"), passwordHash: "test" } });
     const benchmark = await createBenchmark(user.id, { code: "SPX", market: "GLOBAL", name: "标普500", sourceSymbol: "100.SPX" });

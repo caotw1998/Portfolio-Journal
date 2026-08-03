@@ -54,8 +54,8 @@ type BenchmarkListItem = {
 type BenchmarkSearchResult = {
   code: string;
   name: string;
-  market: "SH" | "SZ" | "HK" | "GLOBAL";
-  source: "eastmoney" | "yahoo" | "spglobal";
+  market: "CN" | "SH" | "SZ" | "HK" | "GLOBAL";
+  source: "csindex" | "eastmoney" | "yahoo" | "spglobal";
   sourceSymbol: string;
 };
 

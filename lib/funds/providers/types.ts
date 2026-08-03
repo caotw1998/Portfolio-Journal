@@ -5,6 +5,7 @@ export type FundSearchResult = {
   type: string;
   currency: string;
   source: string;
+  establishedDate: string | null;
 };
 
 export type FundProfileData = {
@@ -35,6 +36,7 @@ export type FundNavPoint = {
   accumulatedNav: number | null;
   dailyReturn: number | null;
   dividendAmount: number | null;
+  splitFactor?: number | null;
 };
 
 export type FundManagerData = {
@@ -73,6 +75,7 @@ export type FundNavCoverage = {
   complete: boolean;
   method: "full_source" | "paginated_api";
   dividendEventsComplete?: boolean;
+  performanceAdjustmentVersion?: number;
 };
 
 export type FundScalePoint = {

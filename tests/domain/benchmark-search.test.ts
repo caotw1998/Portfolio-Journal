@@ -57,6 +57,50 @@ describe("benchmark public search", () => {
     ]);
   });
 
+  test("finds the official CSI total-return derivative instead of guessing its code", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("index-fuzzy-search")) return Response.json({ code: "200", success: true, data: [
+        { indexCode: "930955", indexName: "红利低波100", indexNameEn: "Dividend Low Volatility100" },
+      ] });
+      if (url.includes("get-derivative-index")) return Response.json({ code: "200", success: true, data: [
+        { indexCode: "H20955", indexNameCn: "红利低波100全收益", indexNameEn: "Dividend Low Volatility100 TRI" },
+      ] });
+      if (url.includes("searchapi.eastmoney.com")) return Response.json({ QuotationCodeTable: { Data: [] } });
+      return Response.json({ quotes: [] });
+    });
+
+    await expect(searchPublicBenchmarks("红利低波100全收益", fetchMock)).resolves.toContainEqual({
+      code: "H20955",
+      name: "红利低波100全收益",
+      market: "CN",
+      source: "csindex",
+      sourceSymbol: "H20955",
+    });
+  });
+
+  test("validates an exact CSI H-code through the official endpoint", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("get-index-yield-item")) return Response.json({ code: "200", success: true, data: {
+        indexCode: "H00300",
+        indexNameCn: "300收益",
+        indexNameEn: "CSI 300 TRI",
+      } });
+      if (url.includes("searchapi.eastmoney.com")) return Response.json({ QuotationCodeTable: { Data: [] } });
+      if (url.includes("query1.finance.yahoo.com")) return Response.json({ quotes: [] });
+      return Response.json({ code: "200", success: true, data: [] });
+    });
+
+    expect((await searchPublicBenchmarks("H00300", fetchMock))[0]).toEqual({
+      code: "H00300",
+      name: "300收益",
+      market: "CN",
+      source: "csindex",
+      sourceSymbol: "H00300",
+    });
+  });
+
   test("removes an isolated 1990 CSI placeholder without dropping the continuous base date", () => {
     const points = sanitizeBenchmarkHistoryPoints([
       { date: new Date("1990-01-01T00:00:00Z"), closeValue: 1000 },

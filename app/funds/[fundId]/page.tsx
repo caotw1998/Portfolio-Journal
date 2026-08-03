@@ -6,7 +6,6 @@ import { FundSectionNav } from "@/components/fund-section-nav";
 import { ResponsiveDisclosure } from "@/components/responsive-disclosure";
 import { requireWorkspaceUser } from "@/lib/domain/session";
 import { getEtfPcfSnapshot, getFundDetail, getFundPortfolioReport, listDetailBaselineOptions } from "@/lib/funds/service";
-import { buildDividendAdjustedSeries, calculateSeriesMetrics } from "@/lib/funds/metrics";
 
 export const dynamic = "force-dynamic";
 
@@ -46,11 +45,6 @@ export default async function FundPage({ params, searchParams }: { params: Promi
     const exDate = date(event.exDate);
     dividendsByDate.set(exDate, (dividendsByDate.get(exDate) ?? 0) + event.amount);
   }
-  const performanceSeries = buildDividendAdjustedSeries(fund.navSnapshots.map((point) => {
-    const valuationDate = date(point.valuationDate);
-    return { date: valuationDate, unitNav: point.unitNav, dailyReturn: point.dailyReturn, dividendAmount: dividendsByDate.get(valuationDate) ?? 0 };
-  }));
-  const metrics = calculateSeriesMetrics(performanceSeries);
   const currentManagers = fund.managerTenures.filter((manager) => manager.endDate === null);
   const historicalManagers = fund.managerTenures.filter((manager) => manager.endDate !== null);
 
@@ -85,10 +79,7 @@ export default async function FundPage({ params, searchParams }: { params: Promi
                 <h2 className="min-w-0 text-xl font-semibold lg:text-2xl">业绩与风险</h2>
                 <p className="max-w-40 text-right font-mono text-[10px] leading-5 text-muted-foreground lg:max-w-none lg:text-xs">分红再投资复权<br className="lg:hidden" />{fund.navSnapshots.length} 点 · {fund.dividendEvents.length} 次分红</p>
               </div>
-              <dl className="mt-3 flex flex-wrap gap-px border border-border bg-border text-sm">
-                {[["近一年", metrics.oneYearReturn], ["近三年", metrics.threeYearReturn], ["年化收益", metrics.annualizedReturn], ["最大回撤", metrics.maxDrawdown], ["夏普", metrics.sharpe]].map(([label, value]) => <div key={String(label)} className="min-w-[calc(33.333%-1px)] flex-1 bg-background px-2.5 py-2.5"><dt className="text-[10px] text-muted-foreground">{label}</dt><dd className="mt-1 whitespace-nowrap text-sm font-semibold">{label === "夏普" ? number(value as number | null) : rate(value as number | null)}</dd></div>)}
-              </dl>
-              <div className="mt-3 min-w-0"><DetailPerformanceChart primaryId={fund.id} primaryKind="fund" primaryName={fund.name ?? fund.code} primaryMarket={fund.market} points={fund.navSnapshots.map((point) => { const valuationDate = date(point.valuationDate); return { date: valuationDate, unitNav: point.unitNav, accumulatedNav: point.accumulatedNav, dailyReturn: point.dailyReturn, dividendAmount: dividendsByDate.get(valuationDate) ?? 0 }; })} managerTenures={fund.managerTenures.map((manager) => ({ managerName: manager.managerName, startDate: manager.startDate ? date(manager.startDate) : null, endDate: manager.endDate ? date(manager.endDate) : null }))} baselines={baselines.filter((item) => !(item.kind === "fund" && item.id === fund.id))} chartSingleColor={user.chartSingleColor} chartSeriesColors={user.chartSeriesColors} /></div>
+              <div className="mt-2 min-w-0"><DetailPerformanceChart primaryId={fund.id} primaryKind="fund" primaryName={fund.name ?? fund.code} primaryMarket={fund.market} points={fund.navSnapshots.map((point) => { const valuationDate = date(point.valuationDate); return { date: valuationDate, unitNav: point.unitNav, accumulatedNav: point.accumulatedNav, dailyReturn: point.dailyReturn, dividendAmount: dividendsByDate.get(valuationDate) ?? 0 }; })} managerTenures={fund.managerTenures.map((manager) => ({ managerName: manager.managerName, startDate: manager.startDate ? date(manager.startDate) : null, endDate: manager.endDate ? date(manager.endDate) : null }))} baselines={baselines.filter((item) => !(item.kind === "fund" && item.id === fund.id))} chartSingleColor={user.chartSingleColor} chartSeriesColors={user.chartSeriesColors} /></div>
             </section>
           </div>
 

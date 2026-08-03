@@ -28,7 +28,7 @@
 - `FundPortfolioReport` / `FundHolding`
 - `FundScaleSnapshot`
 - `FundSourceSnapshot`
-- `BenchmarkInstrument` / `BenchmarkPriceSnapshot`
+- `BenchmarkInstrument` / `BenchmarkPriceSnapshot` / `BenchmarkValuationSnapshot`
 - `User` / `Session` / `AuditLog`
 
 核心字段使用规范化关系表；原始公开响应仅存于来源快照，用于追溯和重新解析。
@@ -47,4 +47,4 @@
 
 ## 公开来源策略
 
-东方财富为核心公开采集源；中证指数与交易所页面用于指数和场内基金校验。非核心增强源默认关闭，失败不得阻断净值、档案等核心数据。所有分区应显示抓取时间、过期状态、错误和公开来源链接。
+东方财富为核心公开采集源；中证指数与交易所页面用于指数、全收益衍生指数、官方估值和场内基金校验。指数估值属于非核心增强数据，失败不得阻断行情、净值或档案等核心数据；官方未披露的估值字段保持为空。所有分区应显示抓取时间、过期状态、错误和公开来源链接。

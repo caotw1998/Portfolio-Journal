@@ -20,7 +20,7 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await page.goto("/");
   await expect(page).toHaveURL(/\/research/);
   await expect(page.getByText("本地研究工作区")).toBeVisible();
-  await page.route("**/api/funds/search?q=**", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: [{ code: "110022", name: "易方达消费行业股票", market: "CN_FUND", type: "股票型", source: "eastmoney" }] }) }));
+  await page.route("**/api/funds/search?q=**", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: [{ code: "110022", name: "易方达消费行业股票", market: "CN_FUND", type: "股票型", source: "eastmoney", establishedDate: "2010-08-20" }] }) }));
   await page.route("**/api/funds", async (route) => {
     if (route.request().method() !== "POST") return route.continue();
     const fund = await prisma.fund.create({
@@ -79,6 +79,7 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await page.getByLabel("基金代码或名称").fill("110022");
   await page.getByRole("button", { name: "搜索", exact: true }).click();
   await expect(page.getByText("易方达消费行业股票").first()).toBeVisible();
+  await expect(page.getByText("成立日期 2010-08-20")).toBeVisible();
   await page.getByRole("button", { name: "加入" }).click();
   await expect(page.getByRole("link", { name: "易方达消费行业股票" })).toBeVisible();
   await expect(page.getByText("12.5 亿元")).toBeVisible();
@@ -148,14 +149,24 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await page.getByLabel("长期跟踪分类名称").locator("xpath=..").getByRole("button", { name: "删除" }).click();
   await expect(page.getByRole("button", { name: /^长期跟踪/ })).toHaveCount(0);
 
-  const benchmark = await prisma.benchmarkInstrument.create({ data: { userId: user.id, code: "000300", market: "CN", name: "沪深300", provider: "public_market", priceSnapshots: { create: [
+  const benchmarkValuations = Array.from({ length: 24 }, (_, index) => ({
+    date: new Date(Date.UTC(2024, index, 1)),
+    peTtm: 10 + index * 0.2,
+    pb: 1 + index * 0.02,
+    dividendYield: 3.6 - index * 0.04,
+    source: "csindex",
+    sourceUrl: "https://www.csindex.com.cn/",
+  }));
+  const benchmark = await prisma.benchmarkInstrument.create({ data: { userId: user.id, code: "000300", market: "CN", name: "沪深300", provider: "public_market", valuationLastSyncAt: new Date(), priceSnapshots: { create: [
     { date: new Date("2025-08-01T00:00:00Z"), closeValue: 3500, source: "public_market" },
     { date: new Date("2026-07-01T00:00:00Z"), closeValue: 3900, source: "public_market" },
-  ] } } });
+  ] }, valuationSnapshots: { create: benchmarkValuations } } });
   expect(benchmark.id).toBeTruthy();
   await page.route("**/api/benchmarks/search?q=**", (route) => {
     const query = new URL(route.request().url()).searchParams.get("q") ?? "";
-    const data = query.toUpperCase().includes("SPCLLHCP") || query.includes("标普A股大盘红利低波")
+    const data = query.includes("全收益") || query.toUpperCase().includes("H20955")
+      ? [{ code: "H20955", name: "红利低波100全收益", market: "CN", source: "csindex", sourceSymbol: "H20955" }]
+      : query.toUpperCase().includes("SPCLLHCP") || query.includes("标普A股大盘红利低波")
       ? [{ code: "SPCLLHCP", name: "标普中国A股大盘红利低波50指数", market: "GLOBAL", source: "spglobal", sourceSymbol: "^SPCLLHCP" }]
       : [{ code: "SPX", name: "标普500", market: "GLOBAL", source: "eastmoney", sourceSymbol: "100.SPX" }];
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data }) });
@@ -184,6 +195,11 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await page.getByRole("link", { name: "沪深300" }).click();
   await expect(page).toHaveURL(new RegExp(`/benchmarks/${benchmark.id}$`));
   await expect(page.getByRole("heading", { name: "沪深300" })).toBeVisible();
+  const valuationSection = page.getByRole("heading", { name: "估值位置" }).locator("xpath=ancestor::section[1]");
+  await expect(valuationSection).toBeVisible();
+  await expect(valuationSection.getByRole("button", { name: /市盈率（PE）/ })).toBeVisible();
+  await valuationSection.getByRole("button", { name: /股息率/ }).click();
+  await expect(valuationSection.getByText(/历史分位/)).toBeVisible();
   await expect(page.getByRole("heading", { name: "业绩与风险" })).toBeVisible();
   await expect(page.getByText("3900.00")).toBeVisible();
   await expect(page.getByRole("button", { name: "回撤曲线" })).toBeVisible();
@@ -213,6 +229,9 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await page.getByLabel("指数代码或名称").fill("SPX");
   await page.getByRole("button", { name: "搜索", exact: true }).click();
   await expect(page.getByRole("button", { name: "已录入" })).toBeDisabled();
+  await page.getByLabel("指数代码或名称").fill("红利低波100全收益");
+  await page.getByRole("button", { name: "搜索", exact: true }).click();
+  await expect(page.getByText("H20955.CN · csindex")).toBeVisible();
   await expect(page.getByText("搜索不到？手工录入")).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: "/tmp/benchmark-search-mobile.png", fullPage: true });
@@ -239,6 +258,17 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await page.getByRole("link", { name: "研究库" }).click();
   await page.getByRole("link", { name: "易方达消费行业股票" }).click();
   await expect(page.getByRole("heading", { name: "业绩与风险" })).toBeVisible();
+  const visibleRangeSummary = page.getByTestId("visible-range-performance-summary");
+  await expect(visibleRangeSummary).toContainText("成立来收益");
+  await expect(visibleRangeSummary).toContainText("年化收益");
+  await expect(visibleRangeSummary).toContainText("最大回撤");
+  const [visibleRangeSummaryBox, chartTouchAreaBox] = await Promise.all([
+    visibleRangeSummary.boundingBox(),
+    page.getByTestId("fund-nav-chart-touch-area").boundingBox(),
+  ]);
+  expect(visibleRangeSummaryBox).not.toBeNull();
+  expect(chartTouchAreaBox).not.toBeNull();
+  expect(chartTouchAreaBox!.y - (visibleRangeSummaryBox!.y + visibleRangeSummaryBox!.height)).toBeLessThanOrEqual(8);
   const sectionNavigation = page.getByRole("navigation", { name: "基金详情页内导航" });
   const performanceSectionLink = sectionNavigation.getByRole("link", { name: "业绩风险" });
   const capitalSectionLink = sectionNavigation.getByRole("link", { name: "规模资金" });
@@ -302,7 +332,7 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await expect(fundCurveLabel).toHaveAttribute("aria-pressed", "false");
   await expect(page.getByText("2026-07-01 相对起点")).toBeVisible();
   await expect(page.getByText("+28.57%", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText("主标的年化")).toBeVisible();
+  await expect(page.getByText("年化收益")).toBeVisible();
   await page.getByRole("button", { name: "添加基准" }).click();
   await page.getByLabel("搜索基金或指数").fill("标普A股大盘红利低波");
   await expect(page.getByText("标普中国A股大盘红利低波50指数")).toBeVisible();
@@ -325,7 +355,8 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await expect(page.getByTestId("active-point-metric").first()).toContainText("当前回撤");
   await expect(page.getByTestId("active-point-metric").first()).not.toContainText("相对起点");
   await page.getByRole("button", { name: "业绩曲线" }).click();
-  await expect(page.getByText(/最大回撤 -10.71%/)).toBeVisible();
+  await expect(visibleRangeSummary).toContainText("最大回撤");
+  await expect(visibleRangeSummary).toContainText("-10.71%");
   await expect(page.getByTestId("max-drawdown-segment-legend")).toHaveCount(0);
   const navChart = page.locator("canvas").first();
   const navChartBox = await navChart.boundingBox();
@@ -548,9 +579,9 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await page.getByLabel("搜索基金或指数").fill("000300");
   await page.getByRole("button", { name: "沪深300 · 000300" }).click();
   await expect(page.getByRole("button", { name: "基准：沪深300" })).toBeVisible();
-  await expect(page.getByText("主标的收益")).toBeVisible();
+  await expect(page.getByText("成立来收益")).toBeVisible();
   await expect(page.getByText("基准收益")).toBeVisible();
-  await expect(page.getByText("主标的年化")).toBeVisible();
+  await expect(page.getByText("年化收益")).toBeVisible();
   await expect(page.getByText("基准年化")).toBeVisible();
   await expect(page.getByText("超额收益")).toBeVisible();
   const benchmarkCurveLabel = page.getByRole("button", { name: "沪深300", exact: true });

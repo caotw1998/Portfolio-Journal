@@ -58,8 +58,8 @@ export type DetailBaselineOption = {
 type BenchmarkSearchCandidate = {
   code: string;
   name: string;
-  market: "SH" | "SZ" | "HK" | "GLOBAL";
-  source: "eastmoney" | "yahoo" | "spglobal";
+  market: "CN" | "SH" | "SZ" | "HK" | "GLOBAL";
+  source: "csindex" | "eastmoney" | "yahoo" | "spglobal";
   sourceSymbol: string;
 };
 
@@ -789,27 +789,6 @@ export function DetailPerformanceChart({
               ? `${visibleRange.from} 至 ${visibleRange.to} · ${chartDates.length} 个观测点`
               : "所选区间暂无可比较数据"}
           </p>
-          {fundSeries?.points.length && chartDates.length >= 2 ? (
-            <div className="mt-2 text-sm" aria-live="polite">
-              <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground"><p>{visibleRange?.to} 相对起点</p><p className="truncate text-right">{basisLabel(fundSeries.basis)}</p></div>
-              <div className="mt-2 grid grid-cols-3 gap-px border border-border bg-border">
-                <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">主标的收益</span><strong className={`mt-0.5 block ${returnToneClass(fundLatestReturn ?? 0)}`}>{formatReturn(fundLatestReturn)}</strong></p>
-                <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">主标的年化</span><strong className={`mt-0.5 block ${returnToneClass(fundAnnualizedReturn ?? 0)}`}>{formatReturn(fundAnnualizedReturn)}</strong></p>
-                {benchmarkSeries ? <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">超额收益</span><strong className={`mt-0.5 block ${returnToneClass(excessReturn ?? 0)}`}>{formatReturn(excessReturn)}</strong></p> : <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">最新日期</span><strong className="mt-0.5 block font-mono text-[11px]">{visibleRange?.to}</strong></p>}
-                {benchmarkSeries ? <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">基准收益</span><strong className={`mt-0.5 block ${returnToneClass(benchmarkLatestReturn ?? 0)}`}>{formatReturn(benchmarkLatestReturn)}</strong></p> : null}
-                {benchmarkSeries ? <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">基准年化</span><strong className={`mt-0.5 block ${returnToneClass(benchmarkAnnualizedReturn ?? 0)}`}>{formatReturn(benchmarkAnnualizedReturn)}</strong></p> : null}
-              </div>
-              {drawdownRecovery ? (
-                <div data-testid="drawdown-recovery" className="mt-2 w-full border-l-2 border-[#8f6d58] pl-2 text-[11px] leading-5 text-muted-foreground">
-                  {drawdownRecovery.peakDate && drawdownRecovery.troughDate ? (
-                    <>
-                      <p>最大回撤 <strong className={drawdownToneClass(drawdownRecovery.maxDrawdown)}>{formatReturn(drawdownRecovery.maxDrawdown)}</strong> · {drawdownRecovery.peakDate} → {drawdownRecovery.troughDate} · 下跌 {drawdownRecovery.declineDays} 天 · {drawdownRecovery.recoveryDate ? `${drawdownRecovery.recoveryDate} 修复` : "尚未修复"}</p>
-                    </>
-                  ) : <p>最大回撤 0.00% · 区间内无回撤修复过程</p>}
-                </div>
-              ) : <p className="mt-2 w-full text-[11px] text-muted-foreground">最大回撤 -- · 区间数据不足</p>}
-            </div>
-          ) : fundSeries?.points.length ? <p className="mt-2 text-xs text-muted-foreground">区间内不足两个有效点，暂不计算收益率。</p> : null}
         </div>
         <div className="flex min-w-0 flex-wrap items-center justify-start gap-1.5 xl:justify-end">
           <ChartRangeControls
@@ -881,9 +860,23 @@ export function DetailPerformanceChart({
             {visibleDividendMarkers.length ? <button data-testid="dividend-legend" type="button" aria-pressed={showDividendMarkers} onClick={() => { setShowDividendMarkers((current) => !current); setSelectedDividendMarkerDate(null); }} className={showDividendMarkers ? "min-h-10 border border-[#b7791f] bg-background px-3 py-1.5 text-xs font-medium" : "min-h-10 border border-border bg-background px-3 py-1.5 text-xs text-muted-foreground opacity-60"}><span className="mr-2 inline-block size-2.5 rotate-45 bg-[#b7791f] align-middle" />基金分红</button> : null}
             </div>
           </div>
+          {fundSeries?.points.length && chartDates.length >= 2 ? (
+            <div data-testid="visible-range-performance-summary" className="mt-2 text-sm" aria-live="polite">
+              <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground"><p>{visibleRange?.to} 相对起点</p><p className="truncate text-right">{basisLabel(fundSeries.basis)}</p></div>
+              <div className="mt-1 grid grid-cols-2 gap-px border border-border bg-border sm:grid-cols-3">
+                <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">{preset === "inception" ? "成立来收益" : "区间收益"}</span><strong className={`mt-0.5 block ${returnToneClass(fundLatestReturn ?? 0)}`}>{formatReturn(fundLatestReturn)}</strong></p>
+                <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">年化收益</span><strong className={`mt-0.5 block ${returnToneClass(fundAnnualizedReturn ?? 0)}`}>{formatReturn(fundAnnualizedReturn)}</strong></p>
+                {benchmarkSeries ? <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">超额收益</span><strong className={`mt-0.5 block ${returnToneClass(excessReturn ?? 0)}`}>{formatReturn(excessReturn)}</strong></p> : null}
+                {benchmarkSeries ? <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">基准收益</span><strong className={`mt-0.5 block ${returnToneClass(benchmarkLatestReturn ?? 0)}`}>{formatReturn(benchmarkLatestReturn)}</strong></p> : null}
+                {benchmarkSeries ? <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">基准年化</span><strong className={`mt-0.5 block ${returnToneClass(benchmarkAnnualizedReturn ?? 0)}`}>{formatReturn(benchmarkAnnualizedReturn)}</strong></p> : null}
+                <p className="bg-background p-2"><span className="block text-[10px] text-muted-foreground">最大回撤</span><strong className={`mt-0.5 block ${drawdownToneClass(drawdownRecovery?.maxDrawdown ?? 0)}`}>{drawdownRecovery ? formatReturn(drawdownRecovery.maxDrawdown) : "--"}</strong></p>
+              </div>
+              {drawdownRecovery ? <p data-testid="drawdown-recovery" className="mt-1 border-l-2 border-[#8f6d58] pl-2 text-[11px] leading-5 text-muted-foreground">{drawdownRecovery.peakDate && drawdownRecovery.troughDate ? `${drawdownRecovery.peakDate} → ${drawdownRecovery.troughDate} · 下跌 ${drawdownRecovery.declineDays} 天 · ${drawdownRecovery.recoveryDate ? `${drawdownRecovery.recoveryDate} 修复` : "尚未修复"}` : "区间内无回撤修复过程"}</p> : null}
+            </div>
+          ) : fundSeries?.points.length ? <p className="mt-2 text-xs text-muted-foreground">区间内不足两个有效点，暂不计算收益率。</p> : null}
           <div
             data-testid="fund-nav-chart-touch-area"
-            className="mt-1 min-w-0 overflow-hidden"
+            className="mt-0.5 min-w-0 overflow-hidden"
             style={{ touchAction: "pan-y" }}
             onPointerDown={handleChartPointerDown}
             onPointerMove={handleChartPointerMove}

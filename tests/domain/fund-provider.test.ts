@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { eastmoneyParsers } from "@/lib/funds/providers/eastmoney";
 import { createEastmoneyFundProvider } from "@/lib/funds/providers/eastmoney";
+import { buildDividendAdjustedSeries, calculateSeriesMetrics } from "@/lib/funds/metrics";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -13,6 +14,13 @@ describe("Eastmoney fund provider parsers", () => {
       expect.objectContaining({ code: "515450", market: "SSE" }),
       expect.objectContaining({ code: "159632", market: "SZSE" }),
       expect.objectContaining({ code: "007466", market: "CN_FUND" }),
+    ]);
+  });
+
+  test("parses establishment dates from exchange-traded fund rankings", () => {
+    const source = 'var rankData = {datas:["512890,红利低波ETF华泰柏瑞,HLD波ETFHTBR,2026-08-03,1.2032,2.4064,0,0,0,0,0,0,0,0,140.64,2018-12-19,,,,,,指数型-股票,0"],allRecords:1,pageIndex:1,pageNum:1,allPages:1};';
+    expect(eastmoneyParsers.parseRankSource(source)).toEqual([
+      expect.objectContaining({ code: "512890", name: "红利低波ETF华泰柏瑞", market: "SSE", establishedDate: "2018-12-19", type: "指数型-股票" }),
     ]);
   });
 
@@ -38,6 +46,7 @@ describe("Eastmoney fund provider parsers", () => {
         accumulatedNav: 2.496,
         dailyReturn: -0.1108,
         dividendAmount: null,
+        splitFactor: 4,
       },
       {
         valuationDate: "2026-07-18",
@@ -46,6 +55,7 @@ describe("Eastmoney fund provider parsers", () => {
         accumulatedNav: 2.48,
         dailyReturn: -0.0064,
         dividendAmount: null,
+        splitFactor: 4,
       },
     ]);
   });
@@ -55,10 +65,33 @@ describe("Eastmoney fund provider parsers", () => {
       'var Data_netWorthTrend = [{"x":1609459200000,"y":1,"equityReturn":0},{"x":1609545600000,"y":1.1,"equityReturn":10,"unitMoney":"分红：每份派现金0.12345元"}];',
       'var Data_ACWorthTrend = [[1609459200000,1],[1609545600000,1.2]];',
     ].join("\n");
-    expect(eastmoneyParsers.parseFullNavSource(source)).toEqual([
+    const points = eastmoneyParsers.parseFullNavSource(source);
+    expect(points).toEqual([
       expect.objectContaining({ valuationDate: "2021-01-01", unitNav: 1, accumulatedNav: 1, dailyReturn: 0 }),
-      expect.objectContaining({ valuationDate: "2021-01-02", unitNav: 1.1, accumulatedNav: 1.2, dailyReturn: 0.1, dividendAmount: 0.12345 }),
+      expect.objectContaining({ valuationDate: "2021-01-02", unitNav: 1.1, accumulatedNav: 1.2, dividendAmount: 0.12345 }),
     ]);
+    expect(points[1]?.dailyReturn).toBeCloseTo(0.22345, 10);
+  });
+
+  test("reconstructs the 512890 split-adjusted inception return from exact NAV values", () => {
+    const source = [
+      'var Data_netWorthTrend = [{"x":1545177600000,"y":1,"equityReturn":0},{"x":1634774400000,"y":1.6357,"equityReturn":63.57},{"x":1634860800000,"y":0.8002,"equityReturn":-2.16,"unitMoney":"拆分：每份基金份额分拆2.0份"},{"x":1785715200000,"y":1.2032,"equityReturn":50.36}];',
+      'var Data_ACWorthTrend = [[1545177600000,1],[1634774400000,1.6357],[1634860800000,1.6004],[1785715200000,2.4064]];',
+    ].join("\n");
+
+    const points = eastmoneyParsers.parseFullNavSource(source);
+    const splitPoint = points.find((point) => point.valuationDate === "2021-10-22");
+    expect(splitPoint?.dailyReturn).toBeCloseTo((0.8002 * 2) / 1.6357 - 1, 10);
+
+    const series = buildDividendAdjustedSeries(points.map((point) => ({
+      date: point.valuationDate,
+      unitNav: point.unitNav,
+      dailyReturn: point.dailyReturn,
+      dividendAmount: point.dividendAmount,
+    })));
+    const metrics = calculateSeriesMetrics(series);
+    expect(metrics.totalReturn).toBeCloseTo(1.4064, 10);
+    expect(metrics.annualizedReturn).toBeCloseTo(0.122, 3);
   });
 
   test("interprets source timestamps as China market dates instead of the previous UTC day", () => {

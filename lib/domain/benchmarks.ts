@@ -5,6 +5,7 @@ import { createAuditLog } from "@/lib/domain/audit";
 import { BENCHMARK_PROVIDERS, BENCHMARK_STATUSES } from "@/lib/domain/constants";
 import { optionalString, parseBenchmarkProvider, parseBenchmarkStatus, parseJsonBody, requireDate, requireString } from "@/lib/domain/validation";
 import { buildResearchComparison, type ResearchSeriesInput } from "@/lib/funds/comparison";
+import { fetchCsindexBenchmarkValuations } from "@/lib/domain/benchmark-valuations";
 
 export type HistoryPoint = { date: Date; closeValue: number };
 export type BenchmarkDataBasis = "index" | "proxy_etf";
@@ -20,8 +21,8 @@ export function benchmarkDataBasis(source: string | null | undefined): { dataBas
 export type BenchmarkSearchResult = {
   code: string;
   name: string;
-  market: "SH" | "SZ" | "HK" | "GLOBAL";
-  source: "eastmoney" | "yahoo" | "spglobal";
+  market: "CN" | "SH" | "SZ" | "HK" | "GLOBAL";
+  source: "csindex" | "eastmoney" | "yahoo" | "spglobal";
   sourceSymbol: string;
 };
 
@@ -349,6 +350,87 @@ async function searchYahooBenchmarks(query: string, fetchImpl: typeof fetch) {
   }
 }
 
+type CsindexSearchItem = { indexCode: string; indexNameCn?: string; indexName?: string };
+
+function parseCsindexItems(payload: unknown): CsindexSearchItem[] {
+  const root = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  if (root.success !== true || root.code !== "200" || (!Array.isArray(root.data) && (!root.data || typeof root.data !== "object"))) {
+    throw new ApiError("中证指数搜索返回了无效数据。", 502);
+  }
+  const values = Array.isArray(root.data) ? root.data : [root.data];
+  return values.flatMap((value) => {
+    const item = value && typeof value === "object" ? value as Record<string, unknown> : {};
+    const indexCode = typeof item.indexCode === "string" ? item.indexCode.trim().toUpperCase() : "";
+    const indexName = typeof item.indexNameCn === "string"
+      ? item.indexNameCn.trim()
+      : typeof item.indexName === "string" ? item.indexName.trim() : "";
+    return indexCode && indexName ? [{ indexCode, indexNameCn: indexName }] : [];
+  });
+}
+
+function csindexSearchResult(item: CsindexSearchItem): BenchmarkSearchResult {
+  return {
+    code: item.indexCode,
+    name: item.indexNameCn ?? item.indexName ?? item.indexCode,
+    market: "CN",
+    source: "csindex",
+    sourceSymbol: item.indexCode,
+  };
+}
+
+function normalizeCsindexBaseQuery(query: string) {
+  return query
+    .replace(/全收益指数|净收益指数|全收益|净收益|收益指数|TRI|指数/gi, "")
+    .trim();
+}
+
+async function requestCsindexJson(url: URL, fetchImpl: typeof fetch) {
+  const response = await fetchImpl(url, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(12_000),
+    headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" },
+  });
+  if (!response.ok) throw new ApiError(`中证指数搜索失败（${response.status}）。`, 502);
+  try {
+    return await response.json() as unknown;
+  } catch {
+    throw new ApiError("中证指数搜索返回了无效数据。", 502);
+  }
+}
+
+async function searchCsindexBenchmarks(query: string, fetchImpl: typeof fetch) {
+  const normalizedCode = query.trim().toUpperCase();
+  if (/^H\d{5}$/.test(normalizedCode)) {
+    const url = new URL(`https://www.csindex.com.cn/csindex-home/perf/get-index-yield-item/${encodeURIComponent(normalizedCode)}`);
+    const items = parseCsindexItems(await requestCsindexJson(url, fetchImpl));
+    return items.filter((item) => item.indexCode === normalizedCode).map(csindexSearchResult);
+  }
+
+  const wantsReturnIndex = /全收益|净收益|收益|TRI/i.test(query);
+  const baseQuery = normalizeCsindexBaseQuery(query) || query.trim();
+  const searchUrl = new URL("https://www.csindex.com.cn/csindex-home/indexInfo/index-fuzzy-search");
+  searchUrl.searchParams.set("searchInput", baseQuery);
+  searchUrl.searchParams.set("pageNum", "1");
+  searchUrl.searchParams.set("pageSize", "10");
+  const baseItems = parseCsindexItems(await requestCsindexJson(searchUrl, fetchImpl));
+  if (!wantsReturnIndex) return baseItems.map(csindexSearchResult);
+
+  const derivativeResponses = await Promise.allSettled(baseItems.map(async (item) => {
+    const url = new URL("https://www.csindex.com.cn/csindex-home/perf/get-derivative-index");
+    url.searchParams.set("indexCode", item.indexCode);
+    return parseCsindexItems(await requestCsindexJson(url, fetchImpl));
+  }));
+  const normalizedQuery = normalizeBenchmarkSearchText(query);
+  return derivativeResponses
+    .flatMap((result) => result.status === "fulfilled" ? result.value : [])
+    .map(csindexSearchResult)
+    .sort((left, right) => {
+      const leftExact = normalizeBenchmarkSearchText(left.name) === normalizedQuery || left.code === normalizedQuery;
+      const rightExact = normalizeBenchmarkSearchText(right.name) === normalizedQuery || right.code === normalizedQuery;
+      return Number(rightExact) - Number(leftExact) || left.code.localeCompare(right.code);
+    });
+}
+
 export async function searchPublicBenchmarks(query: string, fetchImpl: typeof fetch = fetch) {
   const normalized = query.trim();
   if (normalized.length < 2) throw new ApiError("请输入至少 2 个字符。", 400);
@@ -357,14 +439,18 @@ export async function searchPublicBenchmarks(query: string, fetchImpl: typeof fe
   const providerResults = await Promise.allSettled([
     searchEastmoneyBenchmarks(normalized, fetchImpl),
     searchYahooBenchmarks(normalized, fetchImpl),
+    searchCsindexBenchmarks(normalized, fetchImpl),
   ]);
-  const successfulProviderResults = providerResults.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+  const eastmoneyResults = providerResults[0]?.status === "fulfilled" ? providerResults[0].value : [];
+  const yahooResults = providerResults[1]?.status === "fulfilled" ? providerResults[1].value : [];
+  const csindexResults = providerResults[2]?.status === "fulfilled" ? providerResults[2].value : [];
   if (!catalogResults.length && providerResults.every((result) => result.status === "rejected")) {
     throw new ApiError("公开指数搜索服务暂不可用。", 502);
   }
   const seen = new Set<string>();
-  return [...catalogResults, ...successfulProviderResults].filter((result) => {
-    const identity = result.sourceSymbol || `${result.market}:${result.code}`;
+  return [...catalogResults, ...csindexResults, ...eastmoneyResults, ...yahooResults].filter((result) => {
+    const identityMarket = ["CN", "SH", "SZ"].includes(result.market) ? "CN" : result.market;
+    const identity = `${identityMarket}:${result.code}`;
     if (seen.has(identity)) return false;
     seen.add(identity);
     return true;
@@ -573,11 +659,54 @@ export async function syncBenchmarkHistory(userId: string, benchmarkId: string, 
   const benchmark = await ownedBenchmark(userId, benchmarkId);
   try {
     const { points, source } = await fetchHistory(benchmark, fetchImpl);
+    const valuationResult = await fetchCsindexBenchmarkValuations(benchmark, fetchImpl);
+    const existingValuations = valuationResult.supported ? await prisma.benchmarkValuationSnapshot.findMany({
+      where: { benchmarkInstrumentId: benchmark.id },
+      orderBy: { date: "asc" },
+    }) : [];
+    const valuationsByDate = new Map(existingValuations.map((point) => [point.date.toISOString().slice(0, 10), {
+      date: point.date.toISOString().slice(0, 10),
+      peTtm: point.peTtm?.toNumber() ?? null,
+      pb: point.pb?.toNumber() ?? null,
+      dividendYield: point.dividendYield?.toNumber() ?? null,
+      source: point.source,
+      sourceUrl: point.sourceUrl,
+    }]));
+    for (const point of valuationResult.points) {
+      const existing = valuationsByDate.get(point.date);
+      valuationsByDate.set(point.date, {
+        date: point.date,
+        peTtm: typeof point.peTtm === "number" ? point.peTtm : existing?.peTtm ?? null,
+        pb: typeof point.pb === "number" ? point.pb : existing?.pb ?? null,
+        dividendYield: typeof point.dividendYield === "number" ? point.dividendYield : existing?.dividendYield ?? null,
+        source: "csindex",
+        sourceUrl: "https://www.csindex.com.cn/",
+      });
+    }
+    const valuations = Array.from(valuationsByDate.values());
     return await prisma.$transaction(async (tx) => {
       await tx.benchmarkPriceSnapshot.deleteMany({ where: { benchmarkInstrumentId: benchmark.id } });
       await tx.benchmarkPriceSnapshot.createMany({ data: points.map((point) => ({ benchmarkInstrumentId: benchmark.id, date: utcDay(point.date), closeValue: point.closeValue, source })) });
-      const updated = await tx.benchmarkInstrument.update({ where: { id: benchmark.id }, data: { status: "active", lastSyncAt: new Date(), lastSyncError: null } });
-      await createAuditLog(tx, { userId, entityType: "benchmark_instrument", entityId: benchmark.id, action: "sync", source: "web", afterJson: { rows: points.length } });
+      if (valuationResult.supported && valuations.length) {
+        await tx.benchmarkValuationSnapshot.deleteMany({ where: { benchmarkInstrumentId: benchmark.id } });
+        await tx.benchmarkValuationSnapshot.createMany({ data: valuations.map((point) => ({
+          benchmarkInstrumentId: benchmark.id,
+          date: new Date(`${point.date}T00:00:00Z`),
+          peTtm: point.peTtm,
+          pb: point.pb,
+          dividendYield: point.dividendYield,
+          source: point.source,
+          sourceUrl: point.sourceUrl,
+        })) });
+      }
+      const updated = await tx.benchmarkInstrument.update({ where: { id: benchmark.id }, data: {
+        status: "active",
+        lastSyncAt: new Date(),
+        lastSyncError: null,
+        valuationLastSyncAt: valuationResult.supported ? new Date() : undefined,
+        valuationLastSyncError: valuationResult.supported ? valuationResult.error : undefined,
+      } });
+      await createAuditLog(tx, { userId, entityType: "benchmark_instrument", entityId: benchmark.id, action: "sync", source: "web", afterJson: { rows: points.length, valuationRows: valuations.length, valuationError: valuationResult.error } });
       return updated;
     });
   } catch (error) {
@@ -630,7 +759,7 @@ export async function listBenchmarkComparison(params: { userId: string; benchmar
 export async function getBenchmarkDetail(userId: string, benchmarkId: string) {
   const benchmark = await prisma.benchmarkInstrument.findFirst({
     where: { id: benchmarkId, userId },
-    include: { priceSnapshots: { orderBy: { date: "asc" } } },
+    include: { priceSnapshots: { orderBy: { date: "asc" } }, valuationSnapshots: { orderBy: { date: "asc" } } },
   });
   if (!benchmark) throw new ApiError("指数不存在。", 404);
   const dataBasisInfo = benchmarkDataBasis(benchmark.priceSnapshots.at(-1)?.source);
@@ -650,9 +779,19 @@ export async function getBenchmarkDetail(userId: string, benchmarkId: string) {
     status: benchmark.status,
     lastSyncAt: benchmark.lastSyncAt?.toISOString() ?? null,
     lastSyncError: benchmark.lastSyncError,
+    valuationLastSyncAt: benchmark.valuationLastSyncAt?.toISOString() ?? null,
+    valuationLastSyncError: benchmark.valuationLastSyncError,
     latestDate: benchmark.priceSnapshots.at(-1)?.date.toISOString().slice(0, 10) ?? null,
     latestValue: benchmark.priceSnapshots.at(-1)?.closeValue.toNumber() ?? null,
     pointCount: benchmark.priceSnapshots.length,
+    valuationSnapshots: benchmark.valuationSnapshots.map((point) => ({
+      date: point.date.toISOString().slice(0, 10),
+      peTtm: point.peTtm?.toNumber() ?? null,
+      pb: point.pb?.toNumber() ?? null,
+      dividendYield: point.dividendYield?.toNumber() ?? null,
+      source: point.source,
+      sourceUrl: point.sourceUrl,
+    })),
     ...dataBasisInfo,
     series: comparison.series[0] ? {
       points: comparison.series[0].points,

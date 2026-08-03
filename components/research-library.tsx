@@ -14,6 +14,7 @@ type SearchResult = {
   market: string;
   type: string;
   source: string;
+  establishedDate: string | null;
 };
 type ResearchCategory = { id: string; name: string; sortOrder: number };
 type FundSyncSummary = {
@@ -452,6 +453,9 @@ export function ResearchLibrary({
                   <p className="font-medium">{fund.name}</p>
                   <p className="mt-1 font-mono text-xs text-muted-foreground">
                     {fund.code} · {fund.type}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    成立日期 {fund.establishedDate ?? "暂无披露"}
                   </p>
                 </div>
                 <button

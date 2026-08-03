@@ -9,6 +9,7 @@ import { fetchOfficialEtfPcf } from "@/lib/funds/providers/official-etf-pcf";
 import { fetchStockIndustry } from "@/lib/funds/providers/stock-industry";
 import type { ProviderResult } from "@/lib/funds/providers/types";
 import { buildDividendAdjustedSeries, calculateSeriesMetrics } from "@/lib/funds/metrics";
+import { rankFundSearchResults } from "@/lib/funds/search";
 
 const provider = createEastmoneyFundProvider();
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -105,15 +106,48 @@ export async function searchFunds(query: string) {
     orderBy: [{ official: "desc" }, { code: "asc" }],
     take: 20,
   });
-  if (local.length) return local.map((item) => ({
+  const localResults = local.map((item) => ({
     code: item.code,
     name: item.name,
     market: classifyFundIdentity({ code: item.code, name: item.name, rawType: item.rawType ?? "fund", market: item.market }).market,
     type: item.rawType ?? "fund",
     currency: "CNY",
     source: item.source,
+    establishedDate: null as string | null,
   }));
-  const results = await provider.search(normalized);
+  let providerResults: Awaited<ReturnType<typeof provider.search>> = [];
+  try {
+    if (localResults.length) {
+      providerResults = await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => resolve([]), 1_500);
+        provider.search(normalized).then((results) => {
+          clearTimeout(timeout);
+          resolve(results);
+        }, (error) => {
+          clearTimeout(timeout);
+          reject(error);
+        });
+      });
+    } else {
+      providerResults = await provider.search(normalized);
+    }
+  } catch (error) {
+    if (!localResults.length) throw error;
+  }
+  const resultsByKey = new Map(localResults.map((item) => [`${item.code}:${item.market}`, item]));
+  for (const item of providerResults) resultsByKey.set(`${item.code}:${item.market}`, item);
+  const knownFunds = await prisma.fund.findMany({
+    where: { code: { in: Array.from(resultsByKey.values()).map((item) => item.code) } },
+    select: { code: true, market: true, establishedDate: true },
+  });
+  for (const fund of knownFunds) {
+    const key = `${fund.code}:${fund.market}`;
+    const result = resultsByKey.get(key);
+    if (result && !result.establishedDate && fund.establishedDate) {
+      resultsByKey.set(key, { ...result, establishedDate: fund.establishedDate.toISOString().slice(0, 10) });
+    }
+  }
+  const results = rankFundSearchResults(Array.from(resultsByKey.values()), normalized).slice(0, 20);
   await Promise.all(results.map((item) => prisma.fundCatalogEntry.upsert({
     where: { code_market: { code: item.code, market: item.market } },
     create: { code: item.code, market: item.market, name: item.name, rawType: item.type, source: item.source },
@@ -333,7 +367,8 @@ async function syncSection(fundId: string, code: string, market: string, section
       ? navSource.coverageJson as Record<string, unknown>
       : null;
     const dividendEventsComplete = previousCoverage?.dividendEventsComplete === true;
-    const refreshFrom = latest && dividendEventsComplete
+    const performanceAdjustmentCurrent = previousCoverage?.performanceAdjustmentVersion === 2;
+    const refreshFrom = latest && dividendEventsComplete && performanceAdjustmentCurrent
       ? new Date(latest.valuationDate.getTime() - 7 * DAY_MS).toISOString().slice(0, 10)
       : undefined;
     const result = await provider.nav(code, refreshFrom);

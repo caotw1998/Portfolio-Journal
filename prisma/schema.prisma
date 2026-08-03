@@ -493,26 +493,46 @@ model ModelPortfolioAllocation {
 }
 
 model BenchmarkInstrument {
-  id            String    @id @default(cuid())
-  userId        String
-  code          String
-  market        String
-  name          String
-  sourceSymbol  String?
-  currency      String?
-  provider      String
-  status        String    @default("active")
-  displayOrder  Int       @default(0)
-  lastSyncAt    DateTime?
-  lastSyncError String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                     String    @id @default(cuid())
+  userId                 String
+  code                   String
+  market                 String
+  name                   String
+  sourceSymbol           String?
+  currency               String?
+  provider               String
+  status                 String    @default("active")
+  displayOrder           Int       @default(0)
+  lastSyncAt             DateTime?
+  lastSyncError          String?
+  valuationLastSyncAt    DateTime?
+  valuationLastSyncError String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
-  user           User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  priceSnapshots BenchmarkPriceSnapshot[]
+  user               User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  priceSnapshots     BenchmarkPriceSnapshot[]
+  valuationSnapshots BenchmarkValuationSnapshot[]
 
   @@unique([userId, code, market])
   @@index([userId, status, displayOrder, createdAt])
+}
+
+model BenchmarkValuationSnapshot {
+  id                    String   @id @default(cuid())
+  benchmarkInstrumentId String
+  date                  DateTime @db.Date
+  peTtm                 Decimal? @db.Decimal(20, 8)
+  pb                    Decimal? @db.Decimal(20, 8)
+  dividendYield         Decimal? @db.Decimal(20, 8)
+  source                String
+  sourceUrl             String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  benchmarkInstrument BenchmarkInstrument @relation(fields: [benchmarkInstrumentId], references: [id], onDelete: Cascade)
+
+  @@unique([benchmarkInstrumentId, date])
 }
 
 model BenchmarkPriceSnapshot {

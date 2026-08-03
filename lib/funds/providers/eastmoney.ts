@@ -12,12 +12,14 @@ import type {
   ProviderResult,
 } from "@/lib/funds/providers/types";
 import { inferCatalogMarket } from "@/lib/funds/classification";
+import { rankFundSearchResults } from "@/lib/funds/search";
 
 const SEARCH_URL = "https://fund.eastmoney.com/js/fundcode_search.js";
 const NAV_URL = "https://api.fund.eastmoney.com/f10/lsjz";
 const FUND_DATA_BASE_URL = "https://fund.eastmoney.com/pingzhongdata";
 const FUND_ARCHIVE_BASE_URL = "https://fundf10.eastmoney.com";
 let catalogCache: { expiresAt: number; funds: FundSearchResult[] } | null = null;
+let rankCache: { expiresAt: number; funds: FundSearchResult[] } | null = null;
 
 function toNumber(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -116,6 +118,30 @@ function parseSearchSource(source: string): FundSearchResult[] {
       type: category,
       currency: "CNY",
       source: "eastmoney",
+      establishedDate: null,
+    }];
+  });
+}
+
+function parseRankSource(source: string): FundSearchResult[] {
+  const match = source.match(/datas\s*:\s*(\[[\s\S]*?\])\s*,\s*allRecords/);
+  if (!match) throw new Error("基金排行格式无法识别。");
+  const rows = JSON.parse(match[1]!) as unknown[];
+  return rows.flatMap((row) => {
+    if (typeof row !== "string") return [];
+    const fields = row.split(",");
+    const code = fields[0]?.trim();
+    const name = fields[1]?.trim();
+    if (!code || !name) return [];
+    const category = fields[21]?.trim() || "基金";
+    return [{
+      code,
+      name,
+      market: inferCatalogMarket(code, name, category),
+      type: category,
+      currency: "CNY",
+      source: "eastmoney",
+      establishedDate: normalizeDate(fields[15]),
     }];
   });
 }
@@ -133,6 +159,7 @@ function parseNavPayload(payload: unknown): FundNavPoint[] {
     }
     const dailyPercent = toNumber(item.JZZZL);
     const dividendAmount = parseDividendAmount(item.FHFCZ, item.FHSP);
+    const splitFactor = parseSplitFactor(item.FHFCZ, item.FHSP);
     return [{
       valuationDate,
       publishedAt: null,
@@ -140,6 +167,7 @@ function parseNavPayload(payload: unknown): FundNavPoint[] {
       accumulatedNav: toNumber(item.LJJZ),
       dailyReturn: dailyPercent === null ? null : dailyPercent / 100,
       dividendAmount,
+      ...(splitFactor === null ? {} : { splitFactor }),
     }];
   });
 }
@@ -159,6 +187,34 @@ function parseDividendAmount(...values: unknown[]) {
   return null;
 }
 
+function parseSplitFactor(...values: unknown[]) {
+  for (const value of values) {
+    if (typeof value !== "string" || !/拆分|分拆|折算/.test(value)) continue;
+    const parsed = toNumber(value.match(/(?:拆分|分拆|折算)[^\d]*([\d.]+)\s*份/)?.[1]);
+    if (parsed !== null && parsed > 0) return parsed;
+  }
+  return null;
+}
+
+function reconstructExactDailyReturns(input: FundNavPoint[]) {
+  const points = [...input].sort((left, right) => left.valuationDate.localeCompare(right.valuationDate));
+  return points.map((point, index) => {
+    if (index === 0) return point;
+    const previous = points[index - 1]!;
+    const dividendAmount = point.dividendAmount && point.dividendAmount > 0 ? point.dividendAmount : 0;
+    const splitFactor = point.splitFactor && point.splitFactor > 0 ? point.splitFactor : 1;
+    const reconstructed = (point.unitNav * splitFactor + dividendAmount) / previous.unitNav - 1;
+    const providerReturn = point.dailyReturn;
+    const recognizedAction = dividendAmount > 0 || splitFactor !== 1;
+    const shouldUseProvider = !recognizedAction
+      && typeof providerReturn === "number"
+      && Number.isFinite(providerReturn)
+      && providerReturn > -1
+      && Math.abs(reconstructed - providerReturn) > 0.001;
+    return { ...point, dailyReturn: shouldUseProvider ? providerReturn : reconstructed };
+  });
+}
+
 function parseFullNavSource(source: string): FundNavPoint[] {
   const unitTrend = extractVariable(source, "Data_netWorthTrend");
   const accumulatedTrend = extractVariable(source, "Data_ACWorthTrend");
@@ -176,12 +232,13 @@ function parseFullNavSource(source: string): FundNavPoint[] {
     }
   }
 
-  return unitTrend.flatMap((value) => {
+  const points = unitTrend.flatMap((value) => {
     const item = value && typeof value === "object" ? value as Record<string, unknown> : {};
     const valuationDate = dateFromTimestamp(item.x);
     const unitNav = toNumber(item.y);
     if (!valuationDate || unitNav === null) return [];
     const dailyPercent = toNumber(item.equityReturn);
+    const splitFactor = parseSplitFactor(item.unitMoney);
     return [{
       valuationDate,
       publishedAt: null,
@@ -189,8 +246,10 @@ function parseFullNavSource(source: string): FundNavPoint[] {
       accumulatedNav: accumulatedByDate.get(valuationDate) ?? null,
       dailyReturn: dailyPercent === null ? null : dailyPercent / 100,
       dividendAmount: parseDividendAmount(item.unitMoney),
+      ...(splitFactor === null ? {} : { splitFactor }),
     }];
-  }).sort((left, right) => left.valuationDate.localeCompare(right.valuationDate));
+  });
+  return reconstructExactDailyReturns(points);
 }
 
 function findArchiveValue(html: string, labels: string[]) {
@@ -570,17 +629,35 @@ export function createEastmoneyFundProvider(): FundDataProvider {
   return {
     source: "eastmoney",
     async search(query) {
-      if (!catalogCache || catalogCache.expiresAt <= Date.now()) {
-        const source = await requestText(SEARCH_URL);
-        catalogCache = { funds: parseSearchSource(source), expiresAt: Date.now() + 24 * 60 * 60 * 1000 };
-      }
+      const cacheLifetime = 24 * 60 * 60 * 1000;
+      const loads: Promise<void>[] = [];
+      if (!catalogCache || catalogCache.expiresAt <= Date.now()) loads.push(requestText(SEARCH_URL).then((source) => {
+        catalogCache = { funds: parseSearchSource(source), expiresAt: Date.now() + cacheLifetime };
+      }));
+      if (!rankCache || rankCache.expiresAt <= Date.now()) loads.push(Promise.allSettled([
+        requestText(`https://fund.eastmoney.com/data/rankhandler.aspx?op=ph&dt=kf&ft=all&rs=&gs=0&sc=clrq&st=asc&sd=1900-01-01&ed=${new Date().toISOString().slice(0, 10)}&qdii=&tabSubtype=,,,,,&pi=1&pn=50000&dx=0`, "https://fund.eastmoney.com/data/fundranking.html"),
+        requestText(`https://fund.eastmoney.com/data/rankhandler.aspx?op=ph&dt=fb&ft=ct&rs=&gs=0&sc=clrq&st=asc&sd=1900-01-01&ed=${new Date().toISOString().slice(0, 10)}&qdii=&tabSubtype=,,,,,&pi=1&pn=50000&dx=0`, "https://fund.eastmoney.com/data/fbsfundranking.html"),
+      ]).then((responses) => {
+        const funds = responses.flatMap((response) => {
+          if (response.status !== "fulfilled") return [];
+          try {
+            return parseRankSource(response.value);
+          } catch {
+            return [];
+          }
+        });
+        rankCache = { funds, expiresAt: Date.now() + cacheLifetime };
+      }));
+      await Promise.all(loads);
       const normalizedQuery = query.trim().toLocaleLowerCase("zh-CN");
-      return catalogCache.funds
+      const merged = new Map<string, FundSearchResult>();
+      for (const fund of catalogCache?.funds ?? []) merged.set(`${fund.code}:${fund.market}`, fund);
+      for (const fund of rankCache?.funds ?? []) merged.set(`${fund.code}:${fund.market}`, fund);
+      return rankFundSearchResults(Array.from(merged.values())
         .filter((fund) =>
           fund.code.includes(normalizedQuery)
           || fund.name.toLocaleLowerCase("zh-CN").includes(normalizedQuery),
-        )
-        .slice(0, 20);
+        ), normalizedQuery).slice(0, 20);
     },
     async profile(code): Promise<ProviderResult<FundProfileData>> {
       const sourceUrl = `${FUND_ARCHIVE_BASE_URL}/jbgk_${encodeURIComponent(code)}.html`;
@@ -597,7 +674,7 @@ export function createEastmoneyFundProvider(): FundDataProvider {
               data,
               sourceUrl: url,
               raw: { unitTrend: extractVariable(text, "Data_netWorthTrend"), accumulatedTrend: extractVariable(text, "Data_ACWorthTrend") },
-              coverage: { expectedCount: data.length, fetchedCount: data.length, firstDate: data[0]!.valuationDate, lastDate: data.at(-1)!.valuationDate, complete: true, method: "full_source", dividendEventsComplete: true },
+              coverage: { expectedCount: data.length, fetchedCount: data.length, firstDate: data[0]!.valuationDate, lastDate: data.at(-1)!.valuationDate, complete: true, method: "full_source", dividendEventsComplete: true, performanceAdjustmentVersion: 2 },
             };
           }
         } catch {
@@ -618,16 +695,16 @@ export function createEastmoneyFundProvider(): FundDataProvider {
         pageParameters.set("pageIndex", String(pageIndex));
         return JSON.parse(await requestText(`${NAV_URL}?${pageParameters}`, `https://fundf10.eastmoney.com/jjjz_${code}.html`)) as unknown;
       });
-      const data = [firstRaw, ...remaining].flatMap(parseNavPayload)
+      const data = reconstructExactDailyReturns([firstRaw, ...remaining].flatMap(parseNavPayload)
         .filter((point, index, points) => points.findIndex((candidate) => candidate.valuationDate === point.valuationDate) === index)
-        .sort((left, right) => left.valuationDate.localeCompare(right.valuationDate));
+        .sort((left, right) => left.valuationDate.localeCompare(right.valuationDate)));
       const complete = data.length === totalCount;
       if (!complete) throw new Error(`基金净值分页不完整（预期 ${totalCount} 条，实际 ${data.length} 条）。`);
       return {
         data,
         sourceUrl,
         raw: { totalCount, pageSize, pageCount },
-        coverage: { expectedCount: totalCount, fetchedCount: data.length, firstDate: data[0]?.valuationDate ?? null, lastDate: data.at(-1)?.valuationDate ?? null, complete, method: "paginated_api" },
+        coverage: { expectedCount: totalCount, fetchedCount: data.length, firstDate: data[0]?.valuationDate ?? null, lastDate: data.at(-1)?.valuationDate ?? null, complete, method: "paginated_api", performanceAdjustmentVersion: 2 },
       };
     },
     async managers(code) {
@@ -703,6 +780,7 @@ export function createEastmoneyFundProvider(): FundDataProvider {
 
 export const eastmoneyParsers = {
   parseSearchSource,
+  parseRankSource,
   parseNavPayload,
   parseFullNavSource,
   parseProfileHtml,

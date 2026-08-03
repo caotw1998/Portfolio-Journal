@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { DetailPerformanceChart } from "@/components/fund-nav-chart";
+import { BenchmarkValuationPanel } from "@/components/benchmark-valuation-panel";
 import { ApiError } from "@/lib/api/responses";
 import { getBenchmarkDetail } from "@/lib/domain/benchmarks";
 import { requireWorkspaceUser } from "@/lib/domain/session";
@@ -26,6 +27,7 @@ export default async function BenchmarkDetailPage({ params }: { params: Promise<
         <dl className="grid grid-cols-2 gap-px bg-border"><div className="bg-background p-4"><dt className="text-xs text-muted-foreground">最新点位</dt><dd className="mt-2 text-3xl font-semibold">{benchmark.latestValue?.toFixed(2) ?? "--"}</dd></div><div className="bg-background p-4"><dt className="text-xs text-muted-foreground">数据日期</dt><dd className="mt-2 font-mono text-sm">{benchmark.latestDate ?? "--"}</dd></div><div className="col-span-2 bg-background p-4"><dt className="text-xs text-muted-foreground">数据状态</dt><dd className="mt-1 text-sm">{benchmark.pointCount} 个点 · {benchmark.lastSyncAt?.slice(0, 10) ?? "尚未同步"}{benchmark.lastSyncError ? ` · ${benchmark.lastSyncError}` : ""}</dd></div></dl>
       </section>
       {benchmark.dataBasis === "proxy_etf" ? <p className="border-l-2 border-[var(--warm-highlight)] bg-card px-4 py-3 text-sm leading-6 text-[#9a4f2a]">精确指数历史不足，当前曲线采用红利低波50ETF南方（515450）前复权行情，仅作跟踪表现代理，不等同于指数原始点位。</p> : null}
+      <BenchmarkValuationPanel points={benchmark.valuationSnapshots} lastSyncAt={benchmark.valuationLastSyncAt} lastSyncError={benchmark.valuationLastSyncError} />
       <section className="min-w-0 overflow-hidden border border-border bg-card p-4 lg:p-6">
         <div className="flex items-start justify-between gap-3"><h2 className="text-xl font-semibold lg:text-2xl">业绩与风险</h2><p className="font-mono text-xs text-muted-foreground">{benchmark.pointCount} 个观测点</p></div>
         <div className="mt-3 min-w-0">
