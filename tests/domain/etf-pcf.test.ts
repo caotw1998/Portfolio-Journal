@@ -104,4 +104,19 @@ describe("A-share reference close", () => {
       source: "eastmoney",
     });
   });
+
+  test("falls back to Sina unadjusted daily closes when Eastmoney is unavailable", async () => {
+    const fetchMock = async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.hostname === "push2his.eastmoney.com") return new Response("upstream unavailable", { status: 503 });
+      expect(url.hostname).toBe("quotes.sina.cn");
+      expect(url.searchParams.get("symbol")).toBe("sz000001");
+      return new Response('var _pcfHistory=([{"day":"2026-07-30","close":"11.20"},{"day":"2026-07-31","close":"11.35"},{"day":"2026-08-03","close":"11.50"}]);');
+    };
+    await expect(fetchChinaStockClose("000001", "2026-07-31", fetchMock)).resolves.toEqual({
+      date: "2026-07-31",
+      close: 11.35,
+      source: "sina",
+    });
+  });
 });

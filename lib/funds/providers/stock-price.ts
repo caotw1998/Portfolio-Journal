@@ -28,8 +28,29 @@ function parseEastmoneyDailyClose(payload: unknown, onOrBeforeDate: string): Dai
   return points.sort((left, right) => left.date.localeCompare(right.date)).at(-1) ?? null;
 }
 
-export async function fetchChinaStockClose(code: string, onOrBeforeDate: string, fetchImpl: typeof fetch = fetch) {
-  const referenceDate = parseDate(onOrBeforeDate);
+function parseSinaDailyClose(payload: string, onOrBeforeDate: string): DailyClose | null {
+  const start = payload.indexOf("([");
+  const end = payload.lastIndexOf("])");
+  if (start < 0 || end <= start) return null;
+  let rows: unknown;
+  try {
+    rows = JSON.parse(payload.slice(start + 1, end + 1));
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(rows)) return null;
+  const points = rows.flatMap((item): DailyClose[] => {
+    if (!item || typeof item !== "object") return [];
+    const row = item as Record<string, unknown>;
+    const date = typeof row.day === "string" ? row.day : "";
+    const close = Number(row.close);
+    if (!date || date > onOrBeforeDate || !Number.isFinite(close) || close <= 0) return [];
+    return [{ date, close }];
+  });
+  return points.sort((left, right) => left.date.localeCompare(right.date)).at(-1) ?? null;
+}
+
+async function fetchEastmoneyClose(code: string, referenceDate: Date, onOrBeforeDate: string, fetchImpl: typeof fetch) {
   const beginDate = new Date(referenceDate.getTime() - 20 * 24 * 60 * 60 * 1000);
   const formatCompact = (date: Date) => date.toISOString().slice(0, 10).replaceAll("-", "");
   const url = new URL("https://push2his.eastmoney.com/api/qt/stock/kline/get");
@@ -51,4 +72,31 @@ export async function fetchChinaStockClose(code: string, onOrBeforeDate: string,
   return { ...point, source: "eastmoney" as const };
 }
 
-export const stockPriceParsers = { parseEastmoneyDailyClose, eastmoneySecurityId };
+async function fetchSinaClose(code: string, onOrBeforeDate: string, fetchImpl: typeof fetch) {
+  const url = new URL("https://quotes.sina.cn/cn/api/jsonp_v2.php/var%20_pcfHistory=/CN_MarketDataService.getKLineData");
+  url.searchParams.set("symbol", `${/^[569]/.test(code) ? "sh" : "sz"}${code}`);
+  url.searchParams.set("scale", "240");
+  url.searchParams.set("ma", "no");
+  url.searchParams.set("datalen", "1023");
+  const response = await fetchImpl(url, {
+    cache: "no-store",
+    signal: AbortSignal.timeout(8_000),
+    headers: { Accept: "text/plain,*/*", "User-Agent": "Mozilla/5.0" },
+  });
+  if (!response.ok) throw new ApiError(`新浪股票参考行情查询失败（${response.status}）。`, 502);
+  const point = parseSinaDailyClose(await response.text(), onOrBeforeDate);
+  if (!point) throw new ApiError("新浪未返回参考日之前的有效收盘价。", 502);
+  return { ...point, source: "sina" as const };
+}
+
+export async function fetchChinaStockClose(code: string, onOrBeforeDate: string, fetchImpl: typeof fetch = fetch) {
+  const referenceDate = parseDate(onOrBeforeDate);
+  eastmoneySecurityId(code);
+  try {
+    return await fetchEastmoneyClose(code, referenceDate, onOrBeforeDate, fetchImpl);
+  } catch {
+    return fetchSinaClose(code, onOrBeforeDate, fetchImpl);
+  }
+}
+
+export const stockPriceParsers = { parseEastmoneyDailyClose, parseSinaDailyClose, eastmoneySecurityId };
