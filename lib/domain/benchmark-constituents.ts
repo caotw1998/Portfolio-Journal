@@ -1,5 +1,6 @@
 import { ApiError } from "@/lib/api/responses";
 import { csvRecords, validIsoDate } from "@/lib/csv";
+import { buildIndustryAllocations, buildPortfolioHoldingRows } from "@/lib/funds/portfolio-view";
 
 export type BenchmarkConstituent = {
   rank: number;
@@ -16,6 +17,29 @@ export type BenchmarkConstituentSnapshotInput = {
   totalWeightPercent?: number | null;
   constituents: BenchmarkConstituent[];
 };
+
+export function buildBenchmarkConstituentPresentation(
+  currentConstituents: BenchmarkConstituent[],
+  previousConstituents: BenchmarkConstituent[],
+  hasPreviousSnapshot = previousConstituents.length > 0,
+) {
+  const holdingInput = (constituent: BenchmarkConstituent) => ({
+    ...constituent,
+    id: constituent.code,
+    weight: constituent.weightPercent,
+  });
+  return {
+    rows: buildPortfolioHoldingRows(
+      currentConstituents.map(holdingInput),
+      previousConstituents.map(holdingInput),
+      hasPreviousSnapshot,
+    ),
+    industries: buildIndustryAllocations(currentConstituents.map((constituent) => ({
+      weight: constituent.weightPercent,
+      industry: constituent.industry,
+    }))),
+  };
+}
 
 function finiteNumber(value: unknown) {
   const parsed = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : Number.NaN;

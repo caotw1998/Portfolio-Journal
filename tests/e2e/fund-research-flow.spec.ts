@@ -169,10 +169,16 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
     { date: new Date("2024-09-24T00:00:00Z"), closeValue: 3300, source: "public_market" },
     { date: new Date("2025-08-01T00:00:00Z"), closeValue: 3500, source: "public_market" },
     { date: new Date("2026-07-01T00:00:00Z"), closeValue: 3900, source: "public_market" },
-  ] }, valuationSnapshots: { create: benchmarkValuations }, constituentSnapshots: { create: { effectiveDate: new Date("2026-07-31T00:00:00Z"), coverage: "top10", totalWeightPercent: 28.5, source: "csindex", constituents: { create: [
-    { rank: 1, code: "600519", name: "贵州茅台", exchange: "上海证券交易所", industry: "主要消费", weightPercent: 5.21 },
-    { rank: 2, code: "300750", name: "宁德时代", exchange: "深圳证券交易所", industry: "工业", weightPercent: 3.88 },
-  ] } } } } });
+  ] }, valuationSnapshots: { create: benchmarkValuations }, constituentSnapshots: { create: [
+    { effectiveDate: new Date("2026-07-31T00:00:00Z"), coverage: "top10", totalWeightPercent: 28.5, source: "csindex", constituents: { create: [
+      { rank: 1, code: "600519", name: "贵州茅台", exchange: "上海证券交易所", industry: "主要消费", weightPercent: 5.21 },
+      { rank: 2, code: "300750", name: "宁德时代", exchange: "深圳证券交易所", industry: "工业", weightPercent: 3.88 },
+    ] } },
+    { effectiveDate: new Date("2025-12-31T00:00:00Z"), coverage: "full", totalWeightPercent: 100, source: "csv", constituents: { create: [
+      { rank: 1, code: "600519", name: "贵州茅台", exchange: "上海证券交易所", industry: "主要消费", weightPercent: 4.8 },
+      { rank: 2, code: "000001", name: "平安银行", exchange: "深圳证券交易所", industry: "金融", weightPercent: 3.2 },
+    ] } },
+  ] } } });
   expect(benchmark.id).toBeTruthy();
   await page.route("**/api/benchmarks/search?q=**", (route) => {
     const query = new URL(route.request().url()).searchParams.get("q") ?? "";
@@ -251,6 +257,30 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await page.setViewportSize({ width: 1440, height: 1000 });
   await expect(page.getByRole("heading", { name: "指数成分股" })).toBeVisible();
   await expect(page.getByText("贵州茅台")).toBeVisible();
+  await expect(page.getByTestId("compact-benchmark-constituents-table")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "行业配置" })).toBeVisible();
+  await expect(page.getByTestId("benchmark-industry-allocation-chart")).toBeVisible();
+  await expect(page.getByText("前十大成分行业配置，不代表完整指数行业分布。")).toBeVisible();
+  await expect(page.getByText("较上期：2025-12-31 · 成分权重变化（%）")).toBeVisible();
+  await expect(page.getByText("新进", { exact: true })).toBeVisible();
+  const constituentTableSection = page.getByTestId("compact-benchmark-constituents-table").locator("xpath=ancestor::section[1]");
+  const constituentIndustrySection = page.getByTestId("benchmark-industry-allocation-chart").locator("xpath=ancestor::section[1]");
+  const [constituentTableBox, constituentIndustryBox] = await Promise.all([constituentTableSection.boundingBox(), constituentIndustrySection.boundingBox()]);
+  expect(constituentTableBox).not.toBeNull();
+  expect(constituentIndustryBox).not.toBeNull();
+  expect(constituentIndustryBox!.x).toBeGreaterThan(constituentTableBox!.x + constituentTableBox!.width - 2);
+  await page.getByLabel("成分股快照日期").selectOption({ label: "2025-12-31" });
+  await expect(page.getByText("暂无更早快照用于计算权重变化。")).toBeVisible();
+  await expect(page.getByText("按该完整成分股快照汇总。")).toBeVisible();
+  await page.getByLabel("成分股快照日期").selectOption({ label: "2026-07-31" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
+  const [mobileConstituentTableBox, mobileConstituentIndustryBox] = await Promise.all([constituentTableSection.boundingBox(), constituentIndustrySection.boundingBox()]);
+  expect(mobileConstituentTableBox).not.toBeNull();
+  expect(mobileConstituentIndustryBox).not.toBeNull();
+  expect(mobileConstituentIndustryBox!.y).toBeGreaterThan(mobileConstituentTableBox!.y + mobileConstituentTableBox!.height - 2);
+  await page.screenshot({ path: "/tmp/benchmark-constituent-portfolio-mobile.png", fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
   let detailCompareRequests = 0;
   page.on("request", (request) => { if (request.url().includes("/api/research/detail-compare")) detailCompareRequests += 1; });
   await expect(page.getByTestId("manager-change-legend")).toHaveCount(0);
