@@ -656,9 +656,9 @@ async function fetchHistory(instrument: BenchmarkInstrument, fetchImpl: typeof f
   return { points: proxyPoints, source: SPCLLHCP_PROXY_SOURCE };
 }
 
-function benchmarkSeriesMetadata(benchmark: Pick<BenchmarkInstrument, "code" | "name" | "parentIndexCode" | "seriesType">) {
-  const inferredTotalReturn = /全收益|净收益|收益指数/.test(benchmark.name) || /^H2\d{5}$/.test(benchmark.code);
-  const parentIndexCode = benchmark.parentIndexCode ?? (inferredTotalReturn && /^H2\d{5}$/.test(benchmark.code) ? benchmark.code.replace(/^H2/, "H3") : null);
+export function benchmarkSeriesMetadata(benchmark: Pick<BenchmarkInstrument, "code" | "name" | "parentIndexCode" | "seriesType">) {
+  const inferredTotalReturn = /全收益|净收益|收益指数/.test(benchmark.name) || /^H2\d{4}$/.test(benchmark.code);
+  const parentIndexCode = benchmark.parentIndexCode ?? (inferredTotalReturn && /^H2\d{4}$/.test(benchmark.code) ? benchmark.code.replace(/^H2/, "H3") : null);
   return { seriesType: inferredTotalReturn ? "total_return" : benchmark.seriesType, parentIndexCode };
 }
 

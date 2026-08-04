@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import {
+  benchmarkSeriesMetadata,
   parseBenchmarkSearchPayload,
   parseCreateBenchmarkInput,
   parseYahooBenchmarkSearchPayload,
@@ -30,6 +31,13 @@ describe("benchmark public search", () => {
 
   test("ranks an exact code match before provider order", () => {
     expect(parseBenchmarkSearchPayload(payload, "SPX")[0]?.code).toBe("SPX");
+  });
+
+  test("maps a CSI total-return code to its price-index constituent parent", () => {
+    expect(benchmarkSeriesMetadata({ code: "H20269", name: "红利低波100全收益指数", parentIndexCode: null, seriesType: "price" })).toEqual({
+      seriesType: "total_return",
+      parentIndexCode: "H30269",
+    });
   });
 
   test("parses Yahoo index results and ignores ETF proxies", () => {
