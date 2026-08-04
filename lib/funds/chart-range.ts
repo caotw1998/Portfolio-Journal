@@ -1,4 +1,4 @@
-import type { ChartDateRange } from "@/lib/chart-time-range";
+import type { ChartDateRange, MarketCycleOption } from "@/lib/chart-time-range";
 import { buildDividendAdjustedSeries } from "@/lib/funds/metrics";
 
 export type FundNavChartPoint = {
@@ -194,6 +194,60 @@ export function buildComparisonReturnSeries(
       returnRate: point.normalizedValue - 1,
     })),
   }));
+}
+
+export function restrictComparisonSeriesToRange(
+  series: ComparisonReturnSeries[],
+  requestedRange: ChartDateRange | null,
+) {
+  if (!series.length) return { series: [], range: null, clamped: false };
+  const starts = series.map((item) => item.points[0]?.date).filter((date): date is string => Boolean(date));
+  const ends = series.map((item) => item.points.at(-1)?.date).filter((date): date is string => Boolean(date));
+  if (starts.length !== series.length || ends.length !== series.length) return { series: [], range: null, clamped: false };
+  const from = [requestedRange?.from, ...starts].filter((date): date is string => Boolean(date)).sort().at(-1)!;
+  const to = [requestedRange?.to, ...ends].filter((date): date is string => Boolean(date)).sort()[0]!;
+  if (from >= to) return { series: [], range: null, clamped: true };
+  const restricted = series.flatMap((item): ComparisonReturnSeries[] => {
+    const points = item.points.filter((point) => point.date >= from && point.date <= to);
+    if (points.length < 2 || !points[0]?.value) return [];
+    const baseValue = points[0].value;
+    return [{ ...item, points: points.map((point) => ({ ...point, returnRate: point.value / baseValue - 1 })) }];
+  });
+  return {
+    series: restricted.length === series.length ? restricted : [],
+    range: restricted.length === series.length ? { from, to } : null,
+    clamped: Boolean(requestedRange && (from !== requestedRange.from || to !== requestedRange.to)),
+  };
+}
+
+export type MarketCyclePerformance = MarketCycleOption & {
+  primaryAnnualizedReturn: number | null;
+  baselineAnnualizedReturn: number | null;
+  annualizedExcessReturn: number | null;
+};
+
+export function calculateMarketCyclePerformance(
+  series: ComparisonReturnSeries[],
+  cycles: MarketCycleOption[],
+): MarketCyclePerformance[] {
+  return cycles.flatMap((cycle): MarketCyclePerformance[] => {
+    const availableTo = series[0]?.points.at(-1)?.date;
+    if (!availableTo) return [];
+    const metrics = calculateSelectedRangeMetrics(series, cycle.from, cycle.to ?? availableTo);
+    const primary = metrics?.series.find((item) => item.id === series[0]?.id);
+    if (!metrics || !primary) return [];
+    const baseline = metrics.series.find((item) => item.id === series[1]?.id);
+    return [{
+      ...cycle,
+      from: primary.fromDate,
+      to: primary.toDate,
+      primaryAnnualizedReturn: primary.annualizedReturn,
+      baselineAnnualizedReturn: baseline?.annualizedReturn ?? null,
+      annualizedExcessReturn: primary.annualizedReturn !== null && baseline?.annualizedReturn !== null && baseline?.annualizedReturn !== undefined
+        ? primary.annualizedReturn - baseline.annualizedReturn
+        : null,
+    }];
+  });
 }
 
 export function calculateAnnualizedReturn(

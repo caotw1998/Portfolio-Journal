@@ -4,6 +4,11 @@ import {
   resolveFixedRange,
   resolveFixedStartRange,
 } from "@/lib/chart-time-range";
+import {
+  calculateMarketCyclePerformance,
+  restrictComparisonSeriesToRange,
+  type ComparisonReturnSeries,
+} from "@/lib/funds/chart-range";
 
 describe("chart market cycle ranges", () => {
   test("exposes the approved A-share cycle anchors", () => {
@@ -38,5 +43,40 @@ describe("chart market cycle ranges", () => {
       range: { from: "2020-01-02", to: "2026-07-21" },
       clampedToAvailableStart: true,
     });
+  });
+});
+
+describe("comparison range and cycle performance", () => {
+  const comparison: ComparisonReturnSeries[] = [
+    { id: "fund", kind: "fund", name: "基金", code: "F", basis: "unit_nav", points: [
+      { date: "2020-01-01", value: 1, returnRate: 0 },
+      { date: "2021-01-01", value: 1.2, returnRate: 0.2 },
+      { date: "2022-01-01", value: 1.1, returnRate: 0.1 },
+    ] },
+    { id: "benchmark", kind: "benchmark", name: "基准", code: "B", basis: "close", points: [
+      { date: "2021-01-01", value: 100, returnRate: 0 },
+      { date: "2022-01-01", value: 105, returnRate: 0.05 },
+      { date: "2023-01-01", value: 110, returnRate: 0.1 },
+    ] },
+  ];
+
+  test("automatically narrows a requested range to common coverage and rebases both series", () => {
+    const result = restrictComparisonSeriesToRange(comparison, { from: "2020-01-01", to: "2023-01-01" });
+    expect(result.range).toEqual({ from: "2021-01-01", to: "2022-01-01" });
+    expect(result.clamped).toBe(true);
+    expect(result.series[0]!.points[0]!.returnRate).toBe(0);
+    expect(result.series[0]!.points[1]!.returnRate).toBeCloseTo(-1 / 12, 10);
+    expect(result.series[1]!.points[0]!.returnRate).toBe(0);
+    expect(result.series[1]!.points[1]!.returnRate).toBeCloseTo(0.05, 10);
+  });
+
+  test("calculates annualized excess for each visible bull/bear interval", () => {
+    const cycles = calculateMarketCyclePerformance(comparison, [{
+      id: "cycle", label: "测试牛市", kind: "bull", from: "2021-01-01", to: "2022-01-01",
+    }]);
+    expect(cycles).toHaveLength(1);
+    expect(cycles[0]).toMatchObject({ id: "cycle", kind: "bull", from: "2021-01-01", to: "2022-01-01" });
+    expect(cycles[0]!.primaryAnnualizedReturn).toBeCloseTo(-1 / 12, 3);
+    expect(cycles[0]!.annualizedExcessReturn).toBeCloseTo(-1 / 12 - 0.05, 3);
   });
 });

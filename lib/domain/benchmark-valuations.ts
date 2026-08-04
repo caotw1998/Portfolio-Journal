@@ -8,6 +8,14 @@ export type BenchmarkValuationPoint = {
   peTtm?: number | null;
   pb?: number | null;
   dividendYield?: number | null;
+  source?: string | null;
+  sourceUrl?: string | null;
+  peSource?: string | null;
+  peSourceUrl?: string | null;
+  pbSource?: string | null;
+  pbSourceUrl?: string | null;
+  dividendYieldSource?: string | null;
+  dividendYieldSourceUrl?: string | null;
 };
 
 const CSINDEX_PE_URL = "https://www.csindex.com.cn/csindex-home/perf/indexCsiDsPe";
@@ -66,6 +74,13 @@ export function parseCsindexCurrentValuationPayload(payload: unknown, instrument
 
 function metricValue(point: BenchmarkValuationPoint, metric: BenchmarkValuationMetric) {
   return metric === "pe" ? point.peTtm : metric === "pb" ? point.pb : point.dividendYield;
+}
+
+export function hasValuationHistory(points: BenchmarkValuationPoint[], metric: BenchmarkValuationMetric) {
+  return points.filter((point) => {
+    const value = metricValue(point, metric);
+    return typeof value === "number" && Number.isFinite(value);
+  }).length >= 2;
 }
 
 export function formatValuationAxisTick(value: number, metric: BenchmarkValuationMetric) {

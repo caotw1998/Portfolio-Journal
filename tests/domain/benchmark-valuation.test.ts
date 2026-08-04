@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   calculateValuationSummary,
   formatValuationAxisTick,
+  hasValuationHistory,
   parseCsindexCurrentValuationPayload,
   parseCsindexPePayload,
 } from "@/lib/domain/benchmark-valuations";
@@ -51,5 +52,13 @@ describe("benchmark valuation", () => {
     expect(formatValuationAxisTick(5.4691, "pb")).toBe("5.47");
     expect(formatValuationAxisTick(4.290000000000001, "dividendYield")).toBe("4.29%");
     expect(formatValuationAxisTick(9, "pe")).toBe("9");
+  });
+
+  test("does not render a history curve for a single snapshot", () => {
+    expect(hasValuationHistory([{ date: "2026-08-03", pb: 0.9 }], "pb")).toBe(false);
+    expect(hasValuationHistory([
+      { date: "2026-08-02", pb: 0.89 },
+      { date: "2026-08-03", pb: 0.9 },
+    ], "pb")).toBe(true);
   });
 });

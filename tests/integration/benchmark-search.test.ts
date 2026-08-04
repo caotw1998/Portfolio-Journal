@@ -64,11 +64,14 @@ describe("benchmark search persistence and sync", () => {
       if (url.pathname.endsWith("/indexValuation")) return Response.json({ code: "200", success: true, data: { tradeDate: "20260803", indexValuations: [
         { indexName: "沪深300", peg: 14.23, pb: 1.4, dp: 2.55 },
       ] } });
+      if (url.pathname.includes("/index/weight/top10new/")) return Response.json({ code: "200", success: true, data: { updateDate: "2026-08-03", top10Sum: 31.25, weightList: [
+        { rowNum: "1", securityCode: "600519", securityName: "贵州茅台", marketNameCn: "上海证券交易所", csiTypeL1: "主要消费", preciseWeight: 5.21 },
+      ] } });
       return new Response("not found", { status: 404 });
     });
 
     await syncBenchmarkHistory(user.id, benchmark.id, fetchMock);
-    const stored = await prisma.benchmarkInstrument.findUniqueOrThrow({ where: { id: benchmark.id }, include: { valuationSnapshots: { orderBy: { date: "asc" } } } });
+    const stored = await prisma.benchmarkInstrument.findUniqueOrThrow({ where: { id: benchmark.id }, include: { valuationSnapshots: { orderBy: { date: "asc" } }, constituentSnapshots: { include: { constituents: true } } } });
     expect(stored.status).toBe("active");
     expect(stored.valuationLastSyncError).toBeNull();
     expect(stored.valuationSnapshots).toHaveLength(20);
@@ -76,6 +79,10 @@ describe("benchmark search persistence and sync", () => {
     expect(stored.valuationSnapshots.at(-1)?.peTtm?.toNumber()).toBe(14.23);
     expect(stored.valuationSnapshots.at(-1)?.pb?.toNumber()).toBe(1.4);
     expect(stored.valuationSnapshots.at(-1)?.dividendYield?.toNumber()).toBe(2.55);
+    expect(stored.valuationSnapshots.at(-1)).toMatchObject({ peSource: "csindex", pbSource: "csindex", dividendYieldSource: "csindex" });
+    expect(stored.constituentLastSyncError).toBeNull();
+    expect(stored.constituentSnapshots[0]?.coverage).toBe("top10");
+    expect(stored.constituentSnapshots[0]?.constituents[0]).toMatchObject({ code: "600519", name: "贵州茅台" });
   });
 
   test("does not fail price sync when optional valuation endpoints fail", async () => {

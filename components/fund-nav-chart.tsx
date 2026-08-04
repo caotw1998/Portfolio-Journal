@@ -22,10 +22,12 @@ import {
   buildFundReturnSeries,
   buildManagerChangeMarkers,
   calculateAnnualizedReturn,
+  calculateMarketCyclePerformance,
   calculateDrawdownRecovery,
   calculateSelectedRangeMetrics,
   filterFundNavPoints,
   resolveCurrentManagerStartDate,
+  restrictComparisonSeriesToRange,
   snapChartDate,
   type ComparisonReturnSeries,
   type ComparisonSeriesInput,
@@ -44,7 +46,7 @@ const chartPalette = {
   dividend: "#b7791f",
 };
 
-type ChartView = "performance" | "drawdown";
+type ChartView = "performance" | "drawdown" | "marketCycles";
 
 export type DetailBaselineOption = {
   id: string;
@@ -79,7 +81,7 @@ function ChartViewSwitch({ value, onChange, className, testId }: {
 }) {
   return (
     <div data-testid={testId} role="group" aria-label="图表视图" className={className}>
-      {(["performance", "drawdown"] as const).map((view) => (
+      {(["performance", "drawdown", "marketCycles"] as const).map((view) => (
         <button
           key={view}
           type="button"
@@ -89,7 +91,7 @@ function ChartViewSwitch({ value, onChange, className, testId }: {
             ? "min-h-10 flex-1 bg-foreground px-4 py-2 text-xs text-background"
             : "min-h-10 flex-1 bg-background px-4 py-2 text-xs text-muted-foreground"}
         >
-          {view === "performance" ? "业绩曲线" : "回撤曲线"}
+          {view === "performance" ? "业绩曲线" : view === "drawdown" ? "回撤曲线" : "牛熊业绩"}
         </button>
       ))}
     </div>
@@ -199,6 +201,10 @@ export function DetailPerformanceChart({
     () => buildComparisonReturnSeries(comparison?.series ?? []),
     [comparison],
   );
+  const restrictedComparison = useMemo(
+    () => restrictComparisonSeriesToRange(comparisonSeries, requestedRange),
+    [comparisonSeries, requestedRange],
+  );
   const selectedBenchmark = availableBenchmarks.find((item) => `${item.kind}:${item.id}` === selectedBaselineKey);
   const matchedBenchmarks = useMemo(
     () => benchmarkQuery.trim()
@@ -211,8 +217,8 @@ export function DetailPerformanceChart({
     return benchmark.code === candidate.code
       && (benchmark.market === candidate.market || chinaMarkets.has(benchmark.market) && chinaMarkets.has(candidate.market));
   })), [availableBenchmarks, publicBenchmarkResults]);
-  const hasComparison = comparisonSeries.length === 2;
-  const displayedSeries = hasComparison ? comparisonSeries : [
+  const hasComparison = restrictedComparison.series.length === 2;
+  const displayedSeries = hasComparison ? restrictedComparison.series : [
     {
       id: primaryId,
       kind: primaryKind,
@@ -247,23 +253,28 @@ export function DetailPerformanceChart({
   const displayedPointDate = activePointDate && chartDates.includes(activePointDate)
     ? activePointDate
     : chartDates.at(-1) ?? null;
-  const pointDisplaySeries = chartView === "performance" ? displayedSeries : drawdownSeries;
+  const pointDisplaySeries = chartView === "drawdown" ? drawdownSeries : displayedSeries;
   const displayedPointSeries = pointDisplaySeries.flatMap((series) => {
     const point = series.points.find((item) => item.date === displayedPointDate);
     return point ? [{ series, point }] : [];
   });
   const visibleRange = hasComparison
-    ? comparison?.range ?? null
+    ? restrictedComparison.range
     : chartDates.length
       ? { from: chartDates[0]!, to: chartDates.at(-1)! }
+      : null;
+  const comparisonCoverageMessage = selectedBenchmark && comparisonSeries.length === 2 && !hasComparison
+    ? "所选时间与基准没有至少两个共同观测点，当前仅展示主标的。"
+    : restrictedComparison.clamped && restrictedComparison.range
+      ? `基准覆盖不足，已自动收窄到共同区间 ${restrictedComparison.range.from} 至 ${restrictedComparison.range.to}。`
       : null;
   const managerChangeMarkers = useMemo(
     () => buildManagerChangeMarkers(managerTenures, fundReturnSeries.points),
     [fundReturnSeries.points, managerTenures],
   );
   const visibleManagerMarkers: VisibleManagerMarker[] = managerChangeMarkers.flatMap((marker) => {
-    if (hasComparison && comparison?.range
-      && (marker.valuationDate < comparison.range.from || marker.valuationDate > comparison.range.to)) {
+    if (hasComparison && visibleRange
+      && (marker.valuationDate < visibleRange.from || marker.valuationDate > visibleRange.to)) {
       return [];
     }
     const point = fundSeries?.points.find((item) => item.date === marker.valuationDate);
@@ -274,8 +285,8 @@ export function DetailPerformanceChart({
   );
   const visibleDividendMarkers = fundReturnSeries.points.flatMap((point) => {
     if (!point.dividendAmount || point.dividendAmount <= 0) return [];
-    if (hasComparison && comparison?.range
-      && (point.date < comparison.range.from || point.date > comparison.range.to)) return [];
+    if (hasComparison && visibleRange
+      && (point.date < visibleRange.from || point.date > visibleRange.to)) return [];
     const displayedPoint = fundSeries?.points.find((item) => item.date === point.date);
     return displayedPoint ? [{ date: point.date, amount: point.dividendAmount, unitNav: point.unitNav, returnRate: displayedPoint.returnRate }] : [];
   });
@@ -347,11 +358,6 @@ export function DetailPerformanceChart({
       baselineKind: selectedBenchmark.kind,
       baselineId: selectedBenchmark.id,
     });
-    if (requestedRange) {
-      parameters.set("from", requestedRange.from);
-      parameters.set("to", requestedRange.to);
-    }
-
     fetch(`/api/research/detail-compare?${parameters.toString()}`, { signal: controller.signal })
       .then(async (response) => {
         const body = await response.json() as ComparisonResponse & { error?: string };
@@ -369,7 +375,7 @@ export function DetailPerformanceChart({
       });
 
     return () => controller.abort();
-  }, [primaryId, primaryKind, requestedRange, selectedBenchmark]);
+  }, [primaryId, primaryKind, selectedBenchmark]);
 
   function applyPreset(nextPreset: ChartRangePreset) {
     resetChartInspection();
@@ -378,11 +384,6 @@ export function DetailPerformanceChart({
     setSelectedMarketCycleId(null);
     setIsCurrentManagerRangeSelected(false);
     setSelectedManagerMarkerDate(null);
-    if (selectedBaselineKey && (nextPreset !== preset || selectedMarketCycleId)) {
-      setComparison(null);
-      setComparisonMessage(null);
-      setIsLoadingComparison(true);
-    }
     if (!availableRange || nextPreset === "inception") {
       setRequestedRange(null);
       return;
@@ -406,11 +407,6 @@ export function DetailPerformanceChart({
       return;
     }
     resetChartInspection();
-    if (selectedBaselineKey) {
-      setComparison(null);
-      setComparisonMessage(null);
-      setIsLoadingComparison(true);
-    }
     setSelectedManagerMarkerDate(null);
     setRequestedRange({ from: customFrom, to: customTo });
   }
@@ -428,11 +424,6 @@ export function DetailPerformanceChart({
     setRangeMessage(resolved.clampedFrom || resolved.clampedTo
       ? `${cycle.label}超出主标的数据范围，已采用 ${resolved.range.from} 至 ${resolved.range.to}。`
       : `${cycle.label} · A股研究口径 ${cycle.from} 至 ${cycle.to ?? "最新可用日期"}`);
-    if (selectedBaselineKey) {
-      setComparison(null);
-      setComparisonMessage(null);
-      setIsLoadingComparison(true);
-    }
     setRequestedRange(resolved.range);
   }
 
@@ -447,11 +438,6 @@ export function DetailPerformanceChart({
     setRangeMessage(resolved.clampedToAvailableStart
       ? "现任经理任职日早于基金净值历史，已从首个净值日开始。"
       : null);
-    if (selectedBaselineKey) {
-      setComparison(null);
-      setComparisonMessage(null);
-      setIsLoadingComparison(true);
-    }
     setRequestedRange(resolved.range);
   }
 
@@ -617,7 +603,10 @@ export function DetailPerformanceChart({
     setSelectedDividendMarkerDate(null);
   }
 
-  const plottedSeries = chartView === "performance" ? displayedSeries : drawdownSeries;
+  const plottedSeries = chartView === "drawdown" ? drawdownSeries : displayedSeries;
+  const marketCycleMetrics = chartView === "marketCycles"
+    ? calculateMarketCyclePerformance(displayedSeries, A_SHARE_MARKET_CYCLE_OPTIONS)
+    : [];
   const axisDomain = buildPaddedValueAxisDomain(
     plottedSeries.flatMap((series) => series.points.map((point) => (
       "drawdown" in point ? point.drawdown * 100 : point.returnRate * 100
@@ -632,6 +621,15 @@ export function DetailPerformanceChart({
       { xAxis: selectedTouchRange.to },
     ]],
   } : undefined;
+  const marketCycleMarkAreaData = marketCycleMetrics.map((cycle) => ([
+    {
+      xAxis: cycle.from,
+      name: `${cycle.kind === "bull" ? "牛市" : cycle.kind === "bear" ? "熊市" : "行情"}\n年化 ${formatReturn(cycle.primaryAnnualizedReturn)}${cycle.annualizedExcessReturn === null ? "" : `\n超额 ${formatReturn(cycle.annualizedExcessReturn)}`}`,
+      itemStyle: { color: cycle.kind === "bull" ? "rgba(180, 35, 24, 0.08)" : cycle.kind === "bear" ? "rgba(39, 108, 155, 0.09)" : "rgba(183, 121, 31, 0.08)" },
+      label: { show: true, position: "insideTop", color: chartPalette.mutedForeground, fontSize: 10, lineHeight: 14 },
+    },
+    { xAxis: cycle.to },
+  ]));
   const option: EChartsOption = {
     animation: false,
     grid: { left: 0, right: 38, top: 24, bottom: 4, containLabel: true },
@@ -668,7 +666,7 @@ export function DetailPerformanceChart({
           const currentSeries = displayedSeries.find((series) => series.name === entry.seriesName);
           const marker = typeof entry.marker === "string" ? entry.marker : "";
           const tone = percent === null || percent === 0 ? visualToneColors.neutral : percent > 0 ? visualToneColors.gain : visualToneColors.loss;
-          const metricLabel = chartView === "performance" ? "相对起点" : "当前回撤";
+          const metricLabel = chartView === "drawdown" ? "当前回撤" : "相对起点";
           lines.push(`<div>${marker}${escapeHtml(String(entry.seriesName ?? ""))} ${metricLabel} <strong style="color:${tone}">${percent === null ? "--" : `${percent > 0 ? "+" : ""}${percent.toFixed(2)}%`}</strong>${rawValue === null || !currentSeries ? "" : ` · ${basisLabel(currentSeries.basis)} ${rawValue.toFixed(currentSeries.kind === "fund" ? 4 : 2)}`}</div>`);
         }
         return lines.join("");
@@ -731,9 +729,11 @@ export function DetailPerformanceChart({
             ] : []),
           ],
         } : undefined,
-        markArea: seriesIndex === 0 && selectedRangeMarkArea
-          ? { ...selectedRangeMarkArea, itemStyle: { color, opacity: 0.08 } }
-          : undefined,
+        markArea: seriesIndex === 0 && chartView === "marketCycles" && marketCycleMarkAreaData.length
+          ? { silent: true, data: marketCycleMarkAreaData as NonNullable<MarkAreaComponentOption["data"]> }
+          : seriesIndex === 0 && selectedRangeMarkArea
+            ? { ...selectedRangeMarkArea, itemStyle: { color, opacity: 0.08 } }
+            : undefined,
         data: series.points.map((point) => [point.date, ("drawdown" in point ? point.drawdown : point.returnRate) * 100, point.value]),
       };
       }),
@@ -779,6 +779,8 @@ export function DetailPerformanceChart({
     `touch:${selectedTouchRange?.from ?? ""}:${selectedTouchRange?.to ?? ""}`,
     `colors:${chartSingleColor}:${chartSeriesColors.join(",")}`,
   ].join("|");
+  const statusMessages = [rangeMessage, comparisonMessage, comparisonCoverageMessage]
+    .filter((message): message is string => Boolean(message));
 
   return (
     <div>
@@ -792,9 +794,9 @@ export function DetailPerformanceChart({
         </div>
       ) : null}
 
-      {rangeMessage || comparisonMessage ? (
+      {statusMessages.length ? (
         <p className="mt-3 border-l-2 border-[var(--warm-highlight)] pl-3 text-sm text-red-700" aria-live="polite">
-          {rangeMessage ?? comparisonMessage}
+          {statusMessages.join(" ")}
         </p>
       ) : null}
 

@@ -6,6 +6,7 @@ import { BENCHMARK_PROVIDERS, BENCHMARK_STATUSES } from "@/lib/domain/constants"
 import { optionalString, parseBenchmarkProvider, parseBenchmarkStatus, parseJsonBody, requireDate, requireString } from "@/lib/domain/validation";
 import { buildResearchComparison, type ResearchSeriesInput } from "@/lib/funds/comparison";
 import { fetchCsindexBenchmarkValuations } from "@/lib/domain/benchmark-valuations";
+import { fetchCsindexTopConstituents } from "@/lib/domain/benchmark-constituents";
 
 export type HistoryPoint = { date: Date; closeValue: number };
 export type BenchmarkDataBasis = "index" | "proxy_etf";
@@ -655,11 +656,24 @@ async function fetchHistory(instrument: BenchmarkInstrument, fetchImpl: typeof f
   return { points: proxyPoints, source: SPCLLHCP_PROXY_SOURCE };
 }
 
+function benchmarkSeriesMetadata(benchmark: Pick<BenchmarkInstrument, "code" | "name" | "parentIndexCode" | "seriesType">) {
+  const inferredTotalReturn = /全收益|净收益|收益指数/.test(benchmark.name) || /^H2\d{5}$/.test(benchmark.code);
+  const parentIndexCode = benchmark.parentIndexCode ?? (inferredTotalReturn && /^H2\d{5}$/.test(benchmark.code) ? benchmark.code.replace(/^H2/, "H3") : null);
+  return { seriesType: inferredTotalReturn ? "total_return" : benchmark.seriesType, parentIndexCode };
+}
+
 export async function syncBenchmarkHistory(userId: string, benchmarkId: string, fetchImpl: typeof fetch = fetch) {
   const benchmark = await ownedBenchmark(userId, benchmarkId);
   try {
     const { points, source } = await fetchHistory(benchmark, fetchImpl);
     const valuationResult = await fetchCsindexBenchmarkValuations(benchmark, fetchImpl);
+    const seriesMetadata = benchmarkSeriesMetadata(benchmark);
+    const supportsCsindexConstituents = ["CN", "SH"].includes(benchmark.market.toUpperCase()) && !benchmark.code.startsWith("399");
+    const constituentResult = supportsCsindexConstituents
+      ? await fetchCsindexTopConstituents(seriesMetadata.parentIndexCode ?? benchmark.code, fetchImpl)
+          .then((snapshot) => ({ snapshot, error: null as string | null }))
+          .catch((error: unknown) => ({ snapshot: null, error: readableProviderError(error) }))
+      : { snapshot: null, error: null as string | null };
     const existingValuations = valuationResult.supported ? await prisma.benchmarkValuationSnapshot.findMany({
       where: { benchmarkInstrumentId: benchmark.id },
       orderBy: { date: "asc" },
@@ -671,6 +685,12 @@ export async function syncBenchmarkHistory(userId: string, benchmarkId: string, 
       dividendYield: point.dividendYield?.toNumber() ?? null,
       source: point.source,
       sourceUrl: point.sourceUrl,
+      peSource: point.peSource,
+      peSourceUrl: point.peSourceUrl,
+      pbSource: point.pbSource,
+      pbSourceUrl: point.pbSourceUrl,
+      dividendYieldSource: point.dividendYieldSource,
+      dividendYieldSourceUrl: point.dividendYieldSourceUrl,
     }]));
     for (const point of valuationResult.points) {
       const existing = valuationsByDate.get(point.date);
@@ -681,6 +701,12 @@ export async function syncBenchmarkHistory(userId: string, benchmarkId: string, 
         dividendYield: typeof point.dividendYield === "number" ? point.dividendYield : existing?.dividendYield ?? null,
         source: "csindex",
         sourceUrl: "https://www.csindex.com.cn/",
+        peSource: typeof point.peTtm === "number" ? "csindex" : existing?.peSource ?? null,
+        peSourceUrl: typeof point.peTtm === "number" ? "https://www.csindex.com.cn/" : existing?.peSourceUrl ?? null,
+        pbSource: typeof point.pb === "number" ? "csindex" : existing?.pbSource ?? null,
+        pbSourceUrl: typeof point.pb === "number" ? "https://www.csindex.com.cn/" : existing?.pbSourceUrl ?? null,
+        dividendYieldSource: typeof point.dividendYield === "number" ? "csindex" : existing?.dividendYieldSource ?? null,
+        dividendYieldSourceUrl: typeof point.dividendYield === "number" ? "https://www.csindex.com.cn/" : existing?.dividendYieldSourceUrl ?? null,
       });
     }
     const valuations = Array.from(valuationsByDate.values());
@@ -697,7 +723,23 @@ export async function syncBenchmarkHistory(userId: string, benchmarkId: string, 
           dividendYield: point.dividendYield,
           source: point.source,
           sourceUrl: point.sourceUrl,
+          peSource: point.peSource,
+          peSourceUrl: point.peSourceUrl,
+          pbSource: point.pbSource,
+          pbSourceUrl: point.pbSourceUrl,
+          dividendYieldSource: point.dividendYieldSource,
+          dividendYieldSourceUrl: point.dividendYieldSourceUrl,
         })) });
+      }
+      if (constituentResult.snapshot) {
+        const snapshot = constituentResult.snapshot;
+        const stored = await tx.benchmarkConstituentSnapshot.upsert({
+          where: { benchmarkInstrumentId_effectiveDate: { benchmarkInstrumentId: benchmark.id, effectiveDate: utcDay(new Date(`${snapshot.effectiveDate}T00:00:00Z`)) } },
+          create: { benchmarkInstrumentId: benchmark.id, effectiveDate: utcDay(new Date(`${snapshot.effectiveDate}T00:00:00Z`)), coverage: snapshot.coverage, totalWeightPercent: snapshot.totalWeightPercent, source: "csindex", sourceUrl: `https://www.csindex.com.cn/#/indices/family/detail?indexCode=${seriesMetadata.parentIndexCode ?? benchmark.code}` },
+          update: { coverage: snapshot.coverage, totalWeightPercent: snapshot.totalWeightPercent, source: "csindex", sourceUrl: `https://www.csindex.com.cn/#/indices/family/detail?indexCode=${seriesMetadata.parentIndexCode ?? benchmark.code}` },
+        });
+        await tx.benchmarkConstituent.deleteMany({ where: { snapshotId: stored.id } });
+        await tx.benchmarkConstituent.createMany({ data: snapshot.constituents.map((item) => ({ snapshotId: stored.id, ...item })) });
       }
       const updated = await tx.benchmarkInstrument.update({ where: { id: benchmark.id }, data: {
         status: "active",
@@ -705,8 +747,11 @@ export async function syncBenchmarkHistory(userId: string, benchmarkId: string, 
         lastSyncError: null,
         valuationLastSyncAt: valuationResult.supported ? new Date() : undefined,
         valuationLastSyncError: valuationResult.supported ? valuationResult.error : undefined,
+        constituentLastSyncAt: constituentResult.snapshot ? new Date() : undefined,
+        constituentLastSyncError: supportsCsindexConstituents ? constituentResult.error : undefined,
+        ...seriesMetadata,
       } });
-      await createAuditLog(tx, { userId, entityType: "benchmark_instrument", entityId: benchmark.id, action: "sync", source: "web", afterJson: { rows: points.length, valuationRows: valuations.length, valuationError: valuationResult.error } });
+      await createAuditLog(tx, { userId, entityType: "benchmark_instrument", entityId: benchmark.id, action: "sync", source: "web", afterJson: { rows: points.length, valuationRows: valuations.length, valuationError: valuationResult.error, constituentRows: constituentResult.snapshot?.constituents.length ?? 0, constituentError: constituentResult.error } });
       return updated;
     });
   } catch (error) {
@@ -759,7 +804,11 @@ export async function listBenchmarkComparison(params: { userId: string; benchmar
 export async function getBenchmarkDetail(userId: string, benchmarkId: string) {
   const benchmark = await prisma.benchmarkInstrument.findFirst({
     where: { id: benchmarkId, userId },
-    include: { priceSnapshots: { orderBy: { date: "asc" } }, valuationSnapshots: { orderBy: { date: "asc" } } },
+    include: {
+      priceSnapshots: { orderBy: { date: "asc" } },
+      valuationSnapshots: { orderBy: { date: "asc" } },
+      constituentSnapshots: { orderBy: { effectiveDate: "desc" }, include: { constituents: { orderBy: { rank: "asc" } } } },
+    },
   });
   if (!benchmark) throw new ApiError("指数不存在。", 404);
   const dataBasisInfo = benchmarkDataBasis(benchmark.priceSnapshots.at(-1)?.source);
@@ -781,6 +830,10 @@ export async function getBenchmarkDetail(userId: string, benchmarkId: string) {
     lastSyncError: benchmark.lastSyncError,
     valuationLastSyncAt: benchmark.valuationLastSyncAt?.toISOString() ?? null,
     valuationLastSyncError: benchmark.valuationLastSyncError,
+    constituentLastSyncAt: benchmark.constituentLastSyncAt?.toISOString() ?? null,
+    constituentLastSyncError: benchmark.constituentLastSyncError,
+    seriesType: benchmark.seriesType,
+    parentIndexCode: benchmark.parentIndexCode,
     latestDate: benchmark.priceSnapshots.at(-1)?.date.toISOString().slice(0, 10) ?? null,
     latestValue: benchmark.priceSnapshots.at(-1)?.closeValue.toNumber() ?? null,
     pointCount: benchmark.priceSnapshots.length,
@@ -791,6 +844,24 @@ export async function getBenchmarkDetail(userId: string, benchmarkId: string) {
       dividendYield: point.dividendYield?.toNumber() ?? null,
       source: point.source,
       sourceUrl: point.sourceUrl,
+      peSource: point.peSource ?? point.source,
+      peSourceUrl: point.peSourceUrl ?? point.sourceUrl,
+      pbSource: point.pbSource ?? point.source,
+      pbSourceUrl: point.pbSourceUrl ?? point.sourceUrl,
+      dividendYieldSource: point.dividendYieldSource ?? point.source,
+      dividendYieldSourceUrl: point.dividendYieldSourceUrl ?? point.sourceUrl,
+    })),
+    constituentSnapshots: benchmark.constituentSnapshots.map((snapshot) => ({
+      id: snapshot.id,
+      effectiveDate: snapshot.effectiveDate.toISOString().slice(0, 10),
+      coverage: snapshot.coverage,
+      totalWeightPercent: snapshot.totalWeightPercent?.toNumber() ?? null,
+      source: snapshot.source,
+      sourceUrl: snapshot.sourceUrl,
+      constituents: snapshot.constituents.map((item) => ({
+        rank: item.rank, code: item.code, name: item.name, exchange: item.exchange,
+        industry: item.industry, weightPercent: item.weightPercent?.toNumber() ?? null,
+      })),
     })),
     ...dataBasisInfo,
     series: comparison.series[0] ? {

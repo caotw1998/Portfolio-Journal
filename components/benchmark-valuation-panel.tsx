@@ -6,6 +6,7 @@ import { ThemedEChart } from "@/components/charts/themed-echart";
 import {
   calculateValuationSummary,
   formatValuationAxisTick,
+  hasValuationHistory,
   type BenchmarkValuationBand,
   type BenchmarkValuationMetric,
   type BenchmarkValuationPoint,
@@ -91,6 +92,7 @@ export function BenchmarkValuationPanel({
   const [metric, setMetric] = useState<BenchmarkValuationMetric>(initialMetric);
   const [range, setRange] = useState<BenchmarkValuationRange>("3y");
   const summary = useMemo(() => calculateValuationSummary(points, metric, range), [metric, points, range]);
+  const hasHistory = useMemo(() => hasValuationHistory(points, metric), [metric, points]);
   const metricConfig = METRICS.find((candidate) => candidate.key === metric)!;
   const tileSummaries = useMemo(() => METRICS.map((candidate) => ({
     ...candidate,
@@ -156,13 +158,13 @@ export function BenchmarkValuationPanel({
         </div>
       </div>
 
-      {summary.points.length ? (
+      {hasHistory ? (
         <>
           <div data-testid="benchmark-valuation-chart" className="mt-2 min-w-0 overflow-hidden"><ThemedEChart option={option} height={380} /></div>
           <div data-testid="benchmark-valuation-range-controls-row" className="mt-1"><ValuationRangeMenu range={range} onChange={setRange} /></div>
         </>
-      ) : <div className="mt-4 flex min-h-48 items-center justify-center border border-dashed border-border bg-background px-6 text-center text-sm leading-6 text-muted-foreground">中证官方机器接口暂未披露该指数的{metricConfig.label}数据。</div>}
-      <p className="mt-3 border-l-2 border-[var(--warm-highlight)] pl-3 text-xs leading-5 text-muted-foreground">来源：中证指数有限公司。PB、股息率仅在官方接口披露时展示；{lastSyncError ? `本次部分同步异常：${lastSyncError}` : "未披露字段保持为空。"}</p>
+      ) : summary.points.length === 1 ? <div className="mt-4 flex min-h-32 items-center justify-center border border-dashed border-border bg-background px-6 text-center text-sm leading-6 text-muted-foreground">当前只有 {summary.currentDate} 一个{metricConfig.label}快照，作为当前值展示；至少两个日期才绘制历史曲线。</div> : <div className="mt-4 flex min-h-48 items-center justify-center border border-dashed border-border bg-background px-6 text-center text-sm leading-6 text-muted-foreground">现有数据源暂未披露该指数的{metricConfig.label}数据。</div>}
+      <p className="mt-3 border-l-2 border-[var(--warm-highlight)] pl-3 text-xs leading-5 text-muted-foreground">来源：中证官方自动同步与已导入的历史 CSV，按指标分别保留来源。PB、股息率若只有当前快照，不伪装成历史曲线；{lastSyncError ? `本次部分同步异常：${lastSyncError}` : "未披露字段保持为空。"}</p>
     </section>
   );
 }

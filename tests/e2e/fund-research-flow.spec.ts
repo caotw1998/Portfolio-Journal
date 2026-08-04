@@ -152,15 +152,18 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   const benchmarkValuations = Array.from({ length: 24 }, (_, index) => ({
     date: new Date(Date.UTC(2024, index, 1)),
     peTtm: 10 + index * 0.2,
-    pb: 1 + index * 0.02,
-    dividendYield: 3.6 - index * 0.04,
+    pb: index === 23 ? 1.46 : null,
+    dividendYield: index === 23 ? 2.68 : null,
     source: "csindex",
     sourceUrl: "https://www.csindex.com.cn/",
   }));
-  const benchmark = await prisma.benchmarkInstrument.create({ data: { userId: user.id, code: "000300", market: "CN", name: "沪深300", provider: "public_market", valuationLastSyncAt: new Date(), priceSnapshots: { create: [
+  const benchmark = await prisma.benchmarkInstrument.create({ data: { userId: user.id, code: "000300", market: "CN", name: "沪深300", provider: "public_market", valuationLastSyncAt: new Date(), constituentLastSyncAt: new Date(), priceSnapshots: { create: [
     { date: new Date("2025-08-01T00:00:00Z"), closeValue: 3500, source: "public_market" },
     { date: new Date("2026-07-01T00:00:00Z"), closeValue: 3900, source: "public_market" },
-  ] }, valuationSnapshots: { create: benchmarkValuations } } });
+  ] }, valuationSnapshots: { create: benchmarkValuations }, constituentSnapshots: { create: { effectiveDate: new Date("2026-07-31T00:00:00Z"), coverage: "top10", totalWeightPercent: 28.5, source: "csindex", constituents: { create: [
+    { rank: 1, code: "600519", name: "贵州茅台", exchange: "上海证券交易所", industry: "主要消费", weightPercent: 5.21 },
+    { rank: 2, code: "300750", name: "宁德时代", exchange: "深圳证券交易所", industry: "工业", weightPercent: 3.88 },
+  ] } } } } });
   expect(benchmark.id).toBeTruthy();
   await page.route("**/api/benchmarks/search?q=**", (route) => {
     const query = new URL(route.request().url()).searchParams.get("q") ?? "";
@@ -195,6 +198,8 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await page.getByRole("link", { name: "沪深300" }).click();
   await expect(page).toHaveURL(new RegExp(`/benchmarks/${benchmark.id}$`));
   await expect(page.getByRole("heading", { name: "沪深300" })).toBeVisible();
+  const detailNavigation = page.getByRole("navigation", { name: "指数详情导航" });
+  await expect(detailNavigation.getByRole("link")).toHaveCount(4);
   const valuationSection = page.getByRole("heading", { name: "估值位置" }).locator("xpath=ancestor::section[1]");
   await expect(valuationSection).toBeVisible();
   await expect(valuationSection.getByRole("button", { name: /市盈率（PE）/ })).toBeVisible();
@@ -209,7 +214,8 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await valuationSection.getByRole("menuitem", { name: "近5年" }).click();
   await expect(valuationSection.getByRole("button", { name: "估值时间区间：近5年" })).toBeVisible();
   await valuationSection.getByRole("button", { name: /股息率/ }).click();
-  await expect(valuationSection.getByText(/历史分位/)).toBeVisible();
+  await expect(valuationSection.getByText(/当前只有.*一个股息率快照/)).toBeVisible();
+  await expect(valuationSection.getByTestId("benchmark-valuation-chart")).toHaveCount(0);
   await page.screenshot({ path: "/tmp/benchmark-valuation-desktop.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
@@ -218,12 +224,22 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await expect(page.getByRole("heading", { name: "业绩与风险" })).toBeVisible();
   await expect(page.getByText("3900.00")).toBeVisible();
   await expect(page.getByRole("button", { name: "回撤曲线" })).toBeVisible();
+  await page.getByRole("button", { name: "牛熊业绩" }).click();
+  await expect(page.getByRole("button", { name: "牛熊业绩" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("heading", { name: "指数成分股" })).toBeVisible();
+  await expect(page.getByText("贵州茅台")).toBeVisible();
+  let detailCompareRequests = 0;
+  page.on("request", (request) => { if (request.url().includes("/api/research/detail-compare")) detailCompareRequests += 1; });
   await expect(page.getByTestId("manager-change-legend")).toHaveCount(0);
   await page.getByRole("button", { name: "添加基准" }).click();
   await page.getByLabel("搜索基金或指数").fill("110022");
   await page.getByRole("button", { name: "易方达消费行业股票 · 110022" }).click();
   await expect(page.getByRole("button", { name: "基准：易方达消费行业股票" })).toBeVisible();
   await expect(page.getByText("基准收益")).toBeVisible();
+  expect(detailCompareRequests).toBe(1);
+  await page.getByRole("button", { name: /时间区间：/ }).click();
+  await page.getByRole("menuitem", { name: "1年" }).click();
+  await expect.poll(() => detailCompareRequests).toBe(1);
   await page.goBack();
   const benchmarkOutline = page.getByRole("navigation", { name: "指数库页内导航" });
   await expect(benchmarkOutline).toHaveCSS("position", "sticky");

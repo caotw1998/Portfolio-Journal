@@ -265,25 +265,25 @@ model EtfPcfSnapshot {
 }
 
 model EtfPcfComponent {
-  id                       String   @id @default(cuid())
+  id                       String    @id @default(cuid())
   snapshotId               String
   instrumentCode           String
   instrumentName           String
-  quantity                 Decimal? @db.Decimal(24, 4)
+  quantity                 Decimal?  @db.Decimal(24, 4)
   substitutionFlag         String
-  creationPremiumRate      Decimal? @db.Decimal(12, 8)
-  redemptionDiscountRate   Decimal? @db.Decimal(12, 8)
-  substitutionCashAmount   Decimal? @db.Decimal(24, 4)
-  creationCashSubstitute   Decimal? @db.Decimal(24, 4)
-  redemptionCashSubstitute Decimal? @db.Decimal(24, 4)
+  creationPremiumRate      Decimal?  @db.Decimal(12, 8)
+  redemptionDiscountRate   Decimal?  @db.Decimal(12, 8)
+  substitutionCashAmount   Decimal?  @db.Decimal(24, 4)
+  creationCashSubstitute   Decimal?  @db.Decimal(24, 4)
+  redemptionCashSubstitute Decimal?  @db.Decimal(24, 4)
   market                   String?
-  referencePrice           Decimal? @db.Decimal(20, 8)
+  referencePrice           Decimal?  @db.Decimal(20, 8)
   referencePriceDate       DateTime? @db.Date
   referencePriceSource     String?
-  referenceValue           Decimal? @db.Decimal(24, 4)
-  basketWeight             Decimal? @db.Decimal(12, 8)
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  referenceValue           Decimal?  @db.Decimal(24, 4)
+  basketWeight             Decimal?  @db.Decimal(12, 8)
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
 
   snapshot EtfPcfSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
 
@@ -498,46 +498,94 @@ model ModelPortfolioAllocation {
 }
 
 model BenchmarkInstrument {
-  id                     String    @id @default(cuid())
-  userId                 String
-  code                   String
-  market                 String
-  name                   String
-  sourceSymbol           String?
-  currency               String?
-  provider               String
-  status                 String    @default("active")
-  displayOrder           Int       @default(0)
-  lastSyncAt             DateTime?
-  lastSyncError          String?
-  valuationLastSyncAt    DateTime?
-  valuationLastSyncError String?
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
+  id                       String    @id @default(cuid())
+  userId                   String
+  code                     String
+  market                   String
+  name                     String
+  sourceSymbol             String?
+  currency                 String?
+  provider                 String
+  status                   String    @default("active")
+  displayOrder             Int       @default(0)
+  lastSyncAt               DateTime?
+  lastSyncError            String?
+  valuationLastSyncAt      DateTime?
+  valuationLastSyncError   String?
+  constituentLastSyncAt    DateTime?
+  constituentLastSyncError String?
+  seriesType               String    @default("price")
+  parentIndexCode          String?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
 
-  user               User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  priceSnapshots     BenchmarkPriceSnapshot[]
-  valuationSnapshots BenchmarkValuationSnapshot[]
+  user                 User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  priceSnapshots       BenchmarkPriceSnapshot[]
+  valuationSnapshots   BenchmarkValuationSnapshot[]
+  constituentSnapshots BenchmarkConstituentSnapshot[]
 
   @@unique([userId, code, market])
   @@index([userId, status, displayOrder, createdAt])
 }
 
 model BenchmarkValuationSnapshot {
+  id                     String   @id @default(cuid())
+  benchmarkInstrumentId  String
+  date                   DateTime @db.Date
+  peTtm                  Decimal? @db.Decimal(20, 8)
+  pb                     Decimal? @db.Decimal(20, 8)
+  dividendYield          Decimal? @db.Decimal(20, 8)
+  source                 String
+  sourceUrl              String?
+  peSource               String?
+  peSourceUrl            String?
+  pbSource               String?
+  pbSourceUrl            String?
+  dividendYieldSource    String?
+  dividendYieldSourceUrl String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  benchmarkInstrument BenchmarkInstrument @relation(fields: [benchmarkInstrumentId], references: [id], onDelete: Cascade)
+
+  @@unique([benchmarkInstrumentId, date])
+}
+
+model BenchmarkConstituentSnapshot {
   id                    String   @id @default(cuid())
   benchmarkInstrumentId String
-  date                  DateTime @db.Date
-  peTtm                 Decimal? @db.Decimal(20, 8)
-  pb                    Decimal? @db.Decimal(20, 8)
-  dividendYield         Decimal? @db.Decimal(20, 8)
+  effectiveDate         DateTime @db.Date
+  coverage              String   @default("full")
+  totalWeightPercent    Decimal? @db.Decimal(12, 8)
   source                String
   sourceUrl             String?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
-  benchmarkInstrument BenchmarkInstrument @relation(fields: [benchmarkInstrumentId], references: [id], onDelete: Cascade)
+  benchmarkInstrument BenchmarkInstrument    @relation(fields: [benchmarkInstrumentId], references: [id], onDelete: Cascade)
+  constituents        BenchmarkConstituent[]
 
-  @@unique([benchmarkInstrumentId, date])
+  @@unique([benchmarkInstrumentId, effectiveDate])
+  @@index([benchmarkInstrumentId, effectiveDate])
+}
+
+model BenchmarkConstituent {
+  id            String   @id @default(cuid())
+  snapshotId    String
+  rank          Int
+  code          String
+  name          String
+  exchange      String?
+  industry      String?
+  weightPercent Decimal? @db.Decimal(12, 8)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  snapshot BenchmarkConstituentSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@unique([snapshotId, code])
+  @@index([snapshotId, rank])
+  @@index([code])
 }
 
 model BenchmarkPriceSnapshot {
