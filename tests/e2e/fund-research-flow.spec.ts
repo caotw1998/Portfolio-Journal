@@ -158,6 +158,15 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
     sourceUrl: "https://www.csindex.com.cn/",
   }));
   const benchmark = await prisma.benchmarkInstrument.create({ data: { userId: user.id, code: "000300", market: "CN", name: "沪深300", provider: "public_market", valuationLastSyncAt: new Date(), constituentLastSyncAt: new Date(), priceSnapshots: { create: [
+    { date: new Date("2005-06-06T00:00:00Z"), closeValue: 820, source: "public_market" },
+    { date: new Date("2007-10-16T00:00:00Z"), closeValue: 5800, source: "public_market" },
+    { date: new Date("2008-10-28T00:00:00Z"), closeValue: 1600, source: "public_market" },
+    { date: new Date("2009-08-04T00:00:00Z"), closeValue: 3800, source: "public_market" },
+    { date: new Date("2014-07-21T00:00:00Z"), closeValue: 2200, source: "public_market" },
+    { date: new Date("2015-06-12T00:00:00Z"), closeValue: 5300, source: "public_market" },
+    { date: new Date("2019-01-04T00:00:00Z"), closeValue: 2900, source: "public_market" },
+    { date: new Date("2021-02-18T00:00:00Z"), closeValue: 5800, source: "public_market" },
+    { date: new Date("2024-09-24T00:00:00Z"), closeValue: 3300, source: "public_market" },
     { date: new Date("2025-08-01T00:00:00Z"), closeValue: 3500, source: "public_market" },
     { date: new Date("2026-07-01T00:00:00Z"), closeValue: 3900, source: "public_market" },
   ] }, valuationSnapshots: { create: benchmarkValuations }, constituentSnapshots: { create: { effectiveDate: new Date("2026-07-31T00:00:00Z"), coverage: "top10", totalWeightPercent: 28.5, source: "csindex", constituents: { create: [
@@ -226,6 +235,20 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await expect(page.getByRole("button", { name: "回撤曲线" })).toBeVisible();
   await page.getByRole("button", { name: "牛熊业绩" }).click();
   await expect(page.getByRole("button", { name: "牛熊业绩" })).toHaveAttribute("aria-pressed", "true");
+  const cycleLabels = page.getByTestId("market-cycle-label");
+  await expect(cycleLabels).toHaveCount(9);
+  for (const label of await cycleLabels.all()) await expect(label).toHaveAttribute("aria-label", /主标年化/);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
+  await expect.poll(() => cycleLabels.evaluateAll((labels) => labels.some((label) => label.getAttribute("data-label-mode") === "vertical"))).toBe(true);
+  const mobileChartBox = await page.getByTestId("fund-nav-chart-touch-area").boundingBox();
+  expect(mobileChartBox).not.toBeNull();
+  for (const box of await cycleLabels.evaluateAll((labels) => labels.map((label) => label.getBoundingClientRect()).map(({ left, right }) => ({ left, right })))) {
+    expect(box.left).toBeGreaterThanOrEqual(mobileChartBox!.x - 1);
+    expect(box.right).toBeLessThanOrEqual(mobileChartBox!.x + mobileChartBox!.width + 1);
+  }
+  await page.screenshot({ path: "/tmp/market-cycle-labels-mobile.png", fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await expect(page.getByRole("heading", { name: "指数成分股" })).toBeVisible();
   await expect(page.getByText("贵州茅台")).toBeVisible();
   let detailCompareRequests = 0;
@@ -236,6 +259,14 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await page.getByRole("button", { name: "易方达消费行业股票 · 110022" }).click();
   await expect(page.getByRole("button", { name: "基准：易方达消费行业股票" })).toBeVisible();
   await expect(page.getByText("基准收益")).toBeVisible();
+  const comparedCycleLabel = page.getByTestId("market-cycle-label").first();
+  await expect(comparedCycleLabel).toHaveAttribute("aria-label", /基准年化/);
+  await expect(comparedCycleLabel).toHaveAttribute("aria-label", /年化超额/);
+  await comparedCycleLabel.click();
+  const cycleReadout = page.getByTestId("fund-performance-readout");
+  await expect(cycleReadout).toContainText("主标年化");
+  await expect(cycleReadout).toContainText("基准年化");
+  await expect(cycleReadout).toContainText("年化超额");
   expect(detailCompareRequests).toBe(1);
   await page.getByRole("button", { name: /时间区间：/ }).click();
   await page.getByRole("menuitem", { name: "1年" }).click();

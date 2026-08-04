@@ -226,6 +226,69 @@ export type MarketCyclePerformance = MarketCycleOption & {
   annualizedExcessReturn: number | null;
 };
 
+export type MarketCycleLabelPresentation = {
+  mode: "full" | "compact" | "vertical";
+  fontSize: number;
+  lineHeight: number;
+  lane: 0 | 1 | 2;
+  lines: string[];
+  ariaLabel: string;
+};
+
+function formatCycleReturn(value: number | null) {
+  if (value === null) return "--";
+  return `${value > 0 ? "+" : ""}${(value * 100).toFixed(2)}%`;
+}
+
+function roundLabelSize(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+export function buildMarketCycleLabelPresentation(
+  cycle: MarketCyclePerformance,
+  pixelWidth: number,
+  hasBaseline: boolean,
+  cycleIndex: number,
+): MarketCycleLabelPresentation {
+  const safeWidth = Math.max(0, Number.isFinite(pixelWidth) ? pixelWidth : 0);
+  const cycleKind = cycle.kind === "bull" ? "牛市" : cycle.kind === "bear" ? "熊市" : "行情";
+  const primary = formatCycleReturn(cycle.primaryAnnualizedReturn);
+  const baseline = formatCycleReturn(cycle.baselineAnnualizedReturn);
+  const excess = formatCycleReturn(cycle.annualizedExcessReturn);
+  const completeLines = [
+    cycleKind,
+    `主标年化 ${primary}`,
+    ...(hasBaseline ? [`基准年化 ${baseline}`, `年化超额 ${excess}`] : []),
+  ];
+  const ariaLabel = `${cycle.label}，${cycle.from} 至 ${cycle.to ?? "最新"}，${completeLines.slice(1).join("，")}`;
+
+  if (safeWidth >= 96) {
+    const fontSize = roundLabelSize(Math.min(11, 9 + (safeWidth - 96) / 44));
+    return { mode: "full", fontSize, lineHeight: fontSize + 3, lane: 0, lines: completeLines, ariaLabel };
+  }
+  if (safeWidth >= 56) {
+    const fontSize = roundLabelSize(7 + (safeWidth - 56) * 2 / 39);
+    return {
+      mode: "compact",
+      fontSize,
+      lineHeight: fontSize + 2.5,
+      lane: cycleIndex % 3 as 0 | 1 | 2,
+      lines: [cycleKind.slice(0, 1), `主 ${primary}`, ...(hasBaseline ? [`基 ${baseline}`, `超 ${excess}`] : [])],
+      ariaLabel,
+    };
+  }
+
+  const fontSize = roundLabelSize(Math.min(7, 6 + safeWidth / 56));
+  return {
+    mode: "vertical",
+    fontSize,
+    lineHeight: fontSize + 2,
+    lane: cycleIndex % 3 as 0 | 1 | 2,
+    lines: [`${cycleKind.slice(0, 1)} 主${primary}${hasBaseline ? ` 基${baseline} 超${excess}` : ""}`],
+    ariaLabel,
+  };
+}
+
 export function calculateMarketCyclePerformance(
   series: ComparisonReturnSeries[],
   cycles: MarketCycleOption[],

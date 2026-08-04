@@ -5,6 +5,8 @@ import {
   buildFundReturnSeries,
   buildManagerChangeMarkers,
   calculateAnnualizedReturn,
+  buildMarketCycleLabelPresentation,
+  calculateMarketCyclePerformance,
   calculateDrawdownRecovery,
   calculateSelectedRangeMetrics,
   filterFundNavPoints,
@@ -285,5 +287,64 @@ describe("fund chart range", () => {
 
   test("does not calculate a two-finger interval when both endpoints are the same day", () => {
     expect(calculateSelectedRangeMetrics([], "2026-01-01", "2026-01-01")).toBeNull();
+  });
+
+  test("scales bull and bear labels at the exact compact and full width boundaries", () => {
+    const cycle = {
+      id: "bull-1",
+      label: "测试牛市",
+      kind: "bull" as const,
+      from: "2024-01-01",
+      to: "2025-01-01",
+      primaryAnnualizedReturn: 0.122,
+      baselineAnnualizedReturn: 0.101,
+      annualizedExcessReturn: 0.021,
+    };
+
+    expect(buildMarketCycleLabelPresentation(cycle, 40, true, 0)).toMatchObject({ mode: "vertical", fontSize: 6.71 });
+    expect(buildMarketCycleLabelPresentation(cycle, 56, true, 1)).toMatchObject({ mode: "compact", fontSize: 7, lane: 1 });
+    expect(buildMarketCycleLabelPresentation(cycle, 95, true, 2)).toMatchObject({ mode: "compact", fontSize: 9, lane: 2 });
+    expect(buildMarketCycleLabelPresentation(cycle, 96, true, 0)).toMatchObject({ mode: "full", fontSize: 9 });
+    expect(buildMarketCycleLabelPresentation(cycle, 140, true, 0)).toMatchObject({ mode: "full", fontSize: 10 });
+  });
+
+  test("includes baseline annualized and annualized excess in cycle labels", () => {
+    const cycle = {
+      id: "bear-1",
+      label: "测试熊市",
+      kind: "bear" as const,
+      from: "2024-01-01",
+      to: "2025-01-01",
+      primaryAnnualizedReturn: -0.12,
+      baselineAnnualizedReturn: -0.08,
+      annualizedExcessReturn: -0.04,
+    };
+    const withBaseline = buildMarketCycleLabelPresentation(cycle, 140, true, 0);
+    expect(withBaseline.lines).toEqual(["熊市", "主标年化 -12.00%", "基准年化 -8.00%", "年化超额 -4.00%"]);
+    expect(withBaseline.ariaLabel).toContain("基准年化 -8.00%");
+    expect(withBaseline.ariaLabel).toContain("年化超额 -4.00%");
+
+    const withoutBaseline = buildMarketCycleLabelPresentation(cycle, 140, false, 0);
+    expect(withoutBaseline.lines).toEqual(["熊市", "主标年化 -12.00%"]);
+    expect(withoutBaseline.ariaLabel).not.toContain("基准年化");
+  });
+
+  test("calculates the baseline annualized return before annualized excess", () => {
+    const metrics = calculateMarketCyclePerformance([
+      {
+        id: "primary", kind: "fund", name: "主标", code: "1", basis: "dividend_reinvested",
+        points: [{ date: "2025-01-01", value: 1, returnRate: 0 }, { date: "2026-01-01", value: 1.2, returnRate: 0.2 }],
+      },
+      {
+        id: "baseline", kind: "benchmark", name: "基准", code: "2", basis: "close",
+        points: [{ date: "2025-01-01", value: 100, returnRate: 0 }, { date: "2026-01-01", value: 110, returnRate: 0.1 }],
+      },
+    ], [{ id: "bull", label: "测试牛市", kind: "bull", from: "2025-01-01", to: "2026-01-01" }]);
+
+    expect(metrics[0]?.baselineAnnualizedReturn).toBeCloseTo(Math.pow(1.1, 365.25 / 365) - 1, 10);
+    expect(metrics[0]?.annualizedExcessReturn).toBeCloseTo(
+      Math.pow(1.2, 365.25 / 365) - Math.pow(1.1, 365.25 / 365),
+      10,
+    );
   });
 });
