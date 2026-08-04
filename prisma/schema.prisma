@@ -565,8 +565,8 @@ model BenchmarkConstituentSnapshot {
   benchmarkInstrument BenchmarkInstrument    @relation(fields: [benchmarkInstrumentId], references: [id], onDelete: Cascade)
   constituents        BenchmarkConstituent[]
 
-  @@unique([benchmarkInstrumentId, effectiveDate])
-  @@index([benchmarkInstrumentId, effectiveDate])
+  @@unique([benchmarkInstrumentId, effectiveDate], map: "BenchmarkConstituentSnapshot_instrument_date_key")
+  @@index([benchmarkInstrumentId, effectiveDate], map: "BenchmarkConstituentSnapshot_instrument_date_idx")
 }
 
 model BenchmarkConstituent {

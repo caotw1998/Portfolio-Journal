@@ -39,8 +39,8 @@ CREATE TABLE "BenchmarkConstituent" (
   CONSTRAINT "BenchmarkConstituent_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "BenchmarkConstituentSnapshot_benchmarkInstrumentId_effectiveDate_key" ON "BenchmarkConstituentSnapshot"("benchmarkInstrumentId", "effectiveDate");
-CREATE INDEX "BenchmarkConstituentSnapshot_benchmarkInstrumentId_effectiveDate_idx" ON "BenchmarkConstituentSnapshot"("benchmarkInstrumentId", "effectiveDate");
+CREATE UNIQUE INDEX "BenchmarkConstituentSnapshot_instrument_date_key" ON "BenchmarkConstituentSnapshot"("benchmarkInstrumentId", "effectiveDate");
+CREATE INDEX "BenchmarkConstituentSnapshot_instrument_date_idx" ON "BenchmarkConstituentSnapshot"("benchmarkInstrumentId", "effectiveDate");
 CREATE UNIQUE INDEX "BenchmarkConstituent_snapshotId_code_key" ON "BenchmarkConstituent"("snapshotId", "code");
 CREATE INDEX "BenchmarkConstituent_snapshotId_rank_idx" ON "BenchmarkConstituent"("snapshotId", "rank");
 CREATE INDEX "BenchmarkConstituent_code_idx" ON "BenchmarkConstituent"("code");
