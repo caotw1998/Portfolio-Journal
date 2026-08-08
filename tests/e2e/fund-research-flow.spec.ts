@@ -111,7 +111,7 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await page.getByRole("button", { name: /^港股 0$/ }).click();
   await expect(page.getByText("这个分类还没有基金")).toBeVisible();
   await page.getByRole("button", { name: /^全部 1$/ }).click();
-  await expect(page.getByRole("button", { name: "全部刷新" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "刷新全部基金" })).toBeEnabled();
   let fundSyncRequests = 0;
   let benchmarkSyncRequests = 0;
   await page.route("**/api/funds/sync?force=true", async (route) => {
@@ -296,7 +296,7 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   const cycleReadout = page.getByTestId("fund-performance-readout");
   await expect(cycleReadout).toContainText("主标年化");
   await expect(cycleReadout).toContainText("基准年化");
-  await expect(cycleReadout).toContainText("年化超额");
+  await expect(cycleReadout).toContainText("区间超额");
   expect(detailCompareRequests).toBe(1);
   await page.getByRole("button", { name: /时间区间：/ }).click();
   await page.getByRole("menuitem", { name: "1年" }).click();

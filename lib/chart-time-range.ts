@@ -139,6 +139,7 @@ function clampDate(date: Date, earliest: Date, latest: Date) {
 export function resolvePresetRange(
   preset: Exclude<ChartRangePreset, "custom">,
   availableRange: ChartDateRange,
+  observationDates: string[] = [],
 ) {
   const earliest = parseDateKey(availableRange.from);
   const latest = parseDateKey(availableRange.to);
@@ -160,11 +161,20 @@ export function resolvePresetRange(
     "10y": -120,
   } satisfies Record<Exclude<ChartRangePreset, "custom" | "inception">, number>;
 
-  const shiftedFrom = shiftUtcMonths(latest, deltaMonthsByPreset[preset]);
-  const from = clampDate(shiftedFrom, earliest, latest);
+  const shiftedFrom = clampDate(
+    shiftUtcMonths(latest, deltaMonthsByPreset[preset]),
+    earliest,
+    latest,
+  );
+  const targetFrom = formatDateKey(shiftedFrom);
+  const observedStart = Array.from(new Set(observationDates))
+    .filter((date) => date >= availableRange.from && date <= availableRange.to && date < targetFrom)
+    .sort()
+    .at(-1);
+  const from = observedStart ?? targetFrom;
 
   return {
-    from: formatDateKey(from),
+    from,
     to: formatDateKey(latest),
   };
 }

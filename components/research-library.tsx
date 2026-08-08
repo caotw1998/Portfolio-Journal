@@ -513,7 +513,7 @@ export function ResearchLibrary({
               disabled={isPending || funds.length === 0}
               className="border border-border bg-background px-4 py-2 text-sm font-medium disabled:opacity-50"
             >
-              全部刷新
+              刷新全部基金
             </button>
           </div>
         </div>

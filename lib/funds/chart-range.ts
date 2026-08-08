@@ -221,9 +221,17 @@ export function restrictComparisonSeriesToRange(
 }
 
 export type MarketCyclePerformance = MarketCycleOption & {
+  primaryReturn: number;
+  baselineReturn: number | null;
+  excessReturn: number | null;
   primaryAnnualizedReturn: number | null;
   baselineAnnualizedReturn: number | null;
   annualizedExcessReturn: number | null;
+};
+
+export type MarketCycleSegment = {
+  cycle: MarketCyclePerformance;
+  series: ComparisonReturnSeries[];
 };
 
 export type MarketCycleLabelPresentation = {
@@ -293,23 +301,48 @@ export function calculateMarketCyclePerformance(
   series: ComparisonReturnSeries[],
   cycles: MarketCycleOption[],
 ): MarketCyclePerformance[] {
-  return cycles.flatMap((cycle): MarketCyclePerformance[] => {
+  return buildMarketCycleSegments(series, cycles).map((segment) => segment.cycle);
+}
+
+export function buildMarketCycleSegments(
+  series: ComparisonReturnSeries[],
+  cycles: MarketCycleOption[],
+): MarketCycleSegment[] {
+  return cycles.flatMap((cycle): MarketCycleSegment[] => {
     const availableTo = series[0]?.points.at(-1)?.date;
     if (!availableTo) return [];
-    const metrics = calculateSelectedRangeMetrics(series, cycle.from, cycle.to ?? availableTo);
+    const isSharedBoundary = cycle.to !== null && cycles.some((other) => other.id !== cycle.id && other.from === cycle.to);
+    const requestedTo = cycle.to ?? availableTo;
+    const primaryDates = series[0]?.points
+      .filter((point) => point.date >= cycle.from && point.date <= requestedTo && (!isSharedBoundary || point.date < requestedTo))
+      .map((point) => point.date) ?? [];
+    const effectiveTo = primaryDates.at(-1);
+    if (!effectiveTo) return [];
+    const metrics = calculateSelectedRangeMetrics(series, cycle.from, effectiveTo);
     const primary = metrics?.series.find((item) => item.id === series[0]?.id);
     if (!metrics || !primary) return [];
     const baseline = metrics.series.find((item) => item.id === series[1]?.id);
-    return [{
+    const performance: MarketCyclePerformance = {
       ...cycle,
       from: primary.fromDate,
       to: primary.toDate,
+      primaryReturn: primary.returnRate,
+      baselineReturn: baseline?.returnRate ?? null,
+      excessReturn: baseline ? primary.returnRate - baseline.returnRate : null,
       primaryAnnualizedReturn: primary.annualizedReturn,
       baselineAnnualizedReturn: baseline?.annualizedReturn ?? null,
       annualizedExcessReturn: primary.annualizedReturn !== null && baseline?.annualizedReturn !== null && baseline?.annualizedReturn !== undefined
         ? primary.annualizedReturn - baseline.annualizedReturn
         : null,
-    }];
+    };
+    const segmentSeries = series.flatMap((item): ComparisonReturnSeries[] => {
+      const points = item.points.filter((point) => point.date >= performance.from && point.date <= (performance.to ?? performance.from));
+      const base = points[0]?.value;
+      if (!base || points.length < 2) return [];
+      return [{ ...item, points: points.map((point) => ({ ...point, returnRate: point.value / base - 1 })) }];
+    });
+    if (segmentSeries.length !== series.length) return [];
+    return [{ cycle: performance, series: segmentSeries }];
   });
 }
 

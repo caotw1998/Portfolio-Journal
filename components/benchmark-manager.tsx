@@ -376,7 +376,11 @@ export function BenchmarkManager({
       };
     }
 
-    return resolvePresetRange(nextPreset, availableRange);
+    return resolvePresetRange(
+      nextPreset,
+      availableRange,
+      comparison.series[0]?.normalizedSeries.map((point) => point.date) ?? [],
+    );
   }
 
   useEffect(() => {

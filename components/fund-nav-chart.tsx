@@ -20,10 +20,10 @@ import {
   buildComparisonReturnSeries,
   buildDrawdownSeries,
   buildFundReturnSeries,
+  buildMarketCycleSegments,
   buildMarketCycleLabelPresentation,
   buildManagerChangeMarkers,
   calculateAnnualizedReturn,
-  calculateMarketCyclePerformance,
   calculateDrawdownRecovery,
   calculateSelectedRangeMetrics,
   filterFundNavPoints,
@@ -266,10 +266,25 @@ export function DetailPerformanceChart({
   const selectedRangeMetrics = selectedTouchRange
     ? calculateSelectedRangeMetrics(displayedSeries, selectedTouchRange.from, selectedTouchRange.to)
     : null;
+  const marketCycleSegments = useMemo(
+    () => buildMarketCycleSegments(displayedSeries, A_SHARE_MARKET_CYCLE_OPTIONS),
+    [displayedSeries],
+  );
+  const marketCycleMetrics = useMemo(
+    () => chartView === "marketCycles" ? marketCycleSegments.map((segment) => segment.cycle) : [],
+    [chartView, marketCycleSegments],
+  );
   const displayedPointDate = activePointDate && chartDates.includes(activePointDate)
     ? activePointDate
     : chartDates.at(-1) ?? null;
-  const pointDisplaySeries = chartView === "drawdown" ? drawdownSeries : displayedSeries;
+  const activeMarketCycleSegment = chartView === "marketCycles" && displayedPointDate
+    ? marketCycleSegments.find((segment) => (
+      displayedPointDate >= segment.cycle.from && displayedPointDate <= (segment.cycle.to ?? displayedPointDate)
+    )) ?? null
+    : null;
+  const pointDisplaySeries = chartView === "drawdown"
+    ? drawdownSeries
+    : activeMarketCycleSegment?.series ?? displayedSeries;
   const displayedPointSeries = pointDisplaySeries.flatMap((series) => {
     const point = series.points.find((item) => item.date === displayedPointDate);
     return point ? [{ series, point }] : [];
@@ -409,7 +424,7 @@ export function DetailPerformanceChart({
       setCustomTo(availableRange.to);
       return;
     }
-    setRequestedRange(resolvePresetRange(nextPreset, availableRange));
+    setRequestedRange(resolvePresetRange(nextPreset, availableRange, orderedPoints.map((point) => point.date)));
   }
 
   function applyCustomRange() {
@@ -621,10 +636,11 @@ export function DetailPerformanceChart({
     setSelectedMarketCycleReadoutId(null);
   }
 
-  const plottedSeries = chartView === "drawdown" ? drawdownSeries : displayedSeries;
-  const marketCycleMetrics = useMemo(() => chartView === "marketCycles"
-    ? calculateMarketCyclePerformance(displayedSeries, A_SHARE_MARKET_CYCLE_OPTIONS)
-    : [], [chartView, displayedSeries]);
+  const plottedSeries = chartView === "drawdown"
+    ? drawdownSeries
+    : chartView === "marketCycles"
+      ? marketCycleSegments.flatMap((segment) => segment.series)
+      : displayedSeries;
   useEffect(() => {
     marketCycleMetricsRef.current = marketCycleMetrics;
     hasComparisonRef.current = hasComparison;
@@ -724,8 +740,8 @@ export function DetailPerformanceChart({
     },
     series: [
       ...plottedSeries.map((series, seriesIndex) => {
-      const isBaseline = seriesIndex === 1;
-      const color = seriesColor(seriesIndex);
+      const isBaseline = series.id === benchmarkSeries?.id;
+      const color = seriesColor(isBaseline ? 1 : 0);
       const latestPoint = series.points.at(-1);
       return {
         name: series.name,
@@ -796,6 +812,7 @@ export function DetailPerformanceChart({
     ...visibleDividendMarkers.map((marker) => `d:${marker.date}:${marker.amount}`),
     `highlight:${highlightedSeriesName ?? ""}`,
     `view:${chartView}`,
+    ...marketCycleSegments.map((segment) => `cycle:${segment.cycle.id}:${segment.cycle.from}:${segment.cycle.to}`),
     `manager:${showManagerMarkers}`,
     `dividend:${showDividendMarkers}`,
     `touch:${selectedTouchRange?.from ?? ""}:${selectedTouchRange?.to ?? ""}`,
@@ -940,7 +957,8 @@ export function DetailPerformanceChart({
                       onClick={(event) => {
                         event.stopPropagation();
                         setSelectedTouchRange(null);
-                        setSelectedMarketCycleReadoutId(cycle.id);
+                        setSelectedMarketCycleReadoutId(null);
+                        setActivePointDate(cycle.to);
                       }}
                       className={`pointer-events-auto absolute z-10 border-0 bg-transparent p-0 font-medium tracking-[-0.02em] outline-none hover:underline focus-visible:ring-1 focus-visible:ring-foreground ${cycle.kind === "bull" ? "text-[#9d2b22]" : cycle.kind === "bear" ? "text-[#24688f]" : "text-[#80591d]"} ${isVertical ? "whitespace-nowrap text-left" : "overflow-hidden text-center"}`}
                       style={isVertical ? {
@@ -1046,11 +1064,28 @@ export function DetailPerformanceChart({
                     <div className="mt-2 grid grid-cols-3 gap-px bg-border">
                       {selectedRangeMetrics.series.map((metric, index) => <div key={metric.id} className="bg-background p-2"><p className="truncate text-[10px] text-muted-foreground">{index === 0 ? "主标的" : "基准"}涨跌</p><p className={`mt-1 font-semibold ${returnToneClass(metric.returnRate)}`}>{formatReturn(metric.returnRate)}</p></div>)}
                       {selectedRangeMetrics.series[0] ? <div className="bg-background p-2"><p className="text-[10px] text-muted-foreground">主标的年化</p><p className={`mt-1 font-semibold ${returnToneClass(selectedRangeMetrics.series[0].annualizedReturn ?? 0)}`}>{formatReturn(selectedRangeMetrics.series[0].annualizedReturn)}</p></div> : null}
+                      {selectedRangeMetrics.series[1] ? <div className="bg-background p-2"><p className="text-[10px] text-muted-foreground">基准年化</p><p className={`mt-1 font-semibold ${returnToneClass(selectedRangeMetrics.series[1].annualizedReturn ?? 0)}`}>{formatReturn(selectedRangeMetrics.series[1].annualizedReturn)}</p></div> : null}
                       {selectedRangeMetrics.series[0] ? <div className="bg-background p-2"><p className="text-[10px] text-muted-foreground">最大回撤</p><p className={`mt-1 font-semibold ${drawdownToneClass(selectedRangeMetrics.series[0].maxDrawdown)}`}>{formatReturn(selectedRangeMetrics.series[0].maxDrawdown)}</p></div> : null}
                       {selectedRangeMetrics.excessReturn !== null ? <div className="bg-background p-2"><p className="text-[10px] text-muted-foreground">超额收益</p><p className={`mt-1 font-semibold ${returnToneClass(selectedRangeMetrics.excessReturn)}`}>{formatReturn(selectedRangeMetrics.excessReturn)}</p></div> : null}
                     </div>
                   </div>
                 ) : <p className="mt-3 text-xs text-muted-foreground">两个触点位于同一交易日，请拉开距离后查看区间业绩。</p>}
+              </>
+            ) : activeMarketCycleSegment ? (
+              <>
+                <div className="flex items-center justify-between gap-3"><div><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">牛熊区间</p><p className="mt-1 text-xs font-semibold">{activeMarketCycleSegment.cycle.label} · {activeMarketCycleSegment.cycle.from} → {activeMarketCycleSegment.cycle.to}</p></div><p className="text-[10px] text-muted-foreground">单指查看区间业绩</p></div>
+                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                  {displayedPointSeries.map(({ series, point }) => {
+                    const pointReturn = "returnRate" in point ? point.returnRate : null;
+                    return <p key={series.id} data-testid="active-point-metric"><span className="text-muted-foreground">{series.name} · 相对本段起点 </span><strong className={returnToneClass(pointReturn ?? 0)}>{formatReturn(pointReturn)}</strong></p>;
+                  })}
+                </div>
+                <div className={`mt-3 grid gap-px bg-border ${hasComparison ? "grid-cols-4" : "grid-cols-3"}`}>
+                  <div className="bg-background p-2"><p className="text-[10px] text-muted-foreground">区间总业绩</p><p className={`mt-1 font-semibold ${returnToneClass(activeMarketCycleSegment.cycle.primaryReturn)}`}>{formatReturn(activeMarketCycleSegment.cycle.primaryReturn)}</p></div>
+                  <div className="bg-background p-2"><p className="text-[10px] text-muted-foreground">主标年化</p><p className={`mt-1 font-semibold ${returnToneClass(activeMarketCycleSegment.cycle.primaryAnnualizedReturn ?? 0)}`}>{formatReturn(activeMarketCycleSegment.cycle.primaryAnnualizedReturn)}</p></div>
+                  {hasComparison ? <div className="bg-background p-2"><p className="text-[10px] text-muted-foreground">基准年化</p><p className={`mt-1 font-semibold ${returnToneClass(activeMarketCycleSegment.cycle.baselineAnnualizedReturn ?? 0)}`}>{formatReturn(activeMarketCycleSegment.cycle.baselineAnnualizedReturn)}</p></div> : null}
+                  {hasComparison ? <div className="bg-background p-2"><p className="text-[10px] text-muted-foreground">区间超额</p><p className={`mt-1 font-semibold ${returnToneClass(activeMarketCycleSegment.cycle.excessReturn ?? 0)}`}>{formatReturn(activeMarketCycleSegment.cycle.excessReturn)}</p></div> : null}
+                </div>
               </>
             ) : (
               <>

@@ -6,6 +6,7 @@ import {
   buildManagerChangeMarkers,
   calculateAnnualizedReturn,
   buildMarketCycleLabelPresentation,
+  buildMarketCycleSegments,
   calculateMarketCyclePerformance,
   calculateDrawdownRecovery,
   calculateSelectedRangeMetrics,
@@ -296,6 +297,9 @@ describe("fund chart range", () => {
       kind: "bull" as const,
       from: "2024-01-01",
       to: "2025-01-01",
+      primaryReturn: 0.122,
+      baselineReturn: 0.101,
+      excessReturn: 0.021,
       primaryAnnualizedReturn: 0.122,
       baselineAnnualizedReturn: 0.101,
       annualizedExcessReturn: 0.021,
@@ -315,6 +319,9 @@ describe("fund chart range", () => {
       kind: "bear" as const,
       from: "2024-01-01",
       to: "2025-01-01",
+      primaryReturn: -0.12,
+      baselineReturn: -0.08,
+      excessReturn: -0.04,
       primaryAnnualizedReturn: -0.12,
       baselineAnnualizedReturn: -0.08,
       annualizedExcessReturn: -0.04,
@@ -346,5 +353,38 @@ describe("fund chart range", () => {
       Math.pow(1.2, 365.25 / 365) - Math.pow(1.1, 365.25 / 365),
       10,
     );
+  });
+
+  test("resets each market-cycle curve and assigns a shared boundary to the next cycle", () => {
+    const segments = buildMarketCycleSegments([
+      {
+        id: "primary", kind: "fund", name: "主标", code: "1", basis: "dividend_reinvested",
+        points: [
+          { date: "2025-01-01", value: 1, returnRate: 0 },
+          { date: "2025-06-01", value: 1.2, returnRate: 0.2 },
+          { date: "2025-07-01", value: 1.1, returnRate: 0.1 },
+          { date: "2025-12-31", value: 1.32, returnRate: 0.32 },
+        ],
+      },
+      {
+        id: "baseline", kind: "benchmark", name: "基准", code: "2", basis: "close",
+        points: [
+          { date: "2025-01-01", value: 100, returnRate: 0 },
+          { date: "2025-06-01", value: 110, returnRate: 0.1 },
+          { date: "2025-07-01", value: 105, returnRate: 0.05 },
+          { date: "2025-12-31", value: 120, returnRate: 0.2 },
+        ],
+      },
+    ], [
+      { id: "first", label: "第一段", kind: "bull", from: "2025-01-01", to: "2025-07-01" },
+      { id: "second", label: "第二段", kind: "bear", from: "2025-07-01", to: "2025-12-31" },
+    ]);
+
+    expect(segments).toHaveLength(2);
+    expect(segments[0]?.series[0]?.points.map((point) => point.date)).toEqual(["2025-01-01", "2025-06-01"]);
+    expect(segments[1]?.series[0]?.points[0]).toMatchObject({ date: "2025-07-01", returnRate: 0 });
+    expect(segments[1]?.cycle?.primaryReturn).toBeCloseTo(0.2, 10);
+    expect(segments[1]?.cycle?.baselineReturn).toBeCloseTo(120 / 105 - 1, 10);
+    expect(segments[1]?.cycle?.excessReturn).toBeCloseTo(1.32 / 1.1 - 120 / 105, 10);
   });
 });

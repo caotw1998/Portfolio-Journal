@@ -3,6 +3,7 @@ import {
   A_SHARE_MARKET_CYCLE_OPTIONS,
   resolveFixedRange,
   resolveFixedStartRange,
+  resolvePresetRange,
 } from "@/lib/chart-time-range";
 import {
   calculateMarketCyclePerformance,
@@ -43,6 +44,15 @@ describe("chart market cycle ranges", () => {
       range: { from: "2020-01-02", to: "2026-07-21" },
       clampedToAvailableStart: true,
     });
+  });
+
+  test("includes the preceding available observation for rolling presets", () => {
+    expect(resolvePresetRange("1y", { from: "2024-01-02", to: "2026-08-08" }, [
+      "2024-01-02", "2025-08-05", "2025-08-06", "2026-08-08",
+    ])).toEqual({ from: "2025-08-06", to: "2026-08-08" });
+    expect(resolvePresetRange("1m", { from: "2026-08-01", to: "2026-08-08" }, [
+      "2026-08-01", "2026-08-08",
+    ])).toEqual({ from: "2026-08-01", to: "2026-08-08" });
   });
 });
 
