@@ -1,7 +1,7 @@
 "use client";
 
 import type { EChartsOption, EChartsType, MarkAreaComponentOption } from "echarts";
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { ChartRangeControls } from "@/components/chart-range-controls";
 import { ThemedEChart } from "@/components/charts/themed-echart";
 import { buildPaddedValueAxisDomain } from "@/lib/chart-axis-domain";
@@ -21,7 +21,6 @@ import {
   buildDrawdownSeries,
   buildFundReturnSeries,
   buildMarketCycleSegments,
-  buildMarketCycleLabelPresentation,
   buildManagerChangeMarkers,
   calculateAnnualizedReturn,
   calculateDrawdownRecovery,
@@ -35,8 +34,6 @@ import {
   type FundManagerTenureInput,
   type FundNavChartPoint,
   type ManagerChangeMarker,
-  type MarketCycleLabelPresentation,
-  type MarketCyclePerformance,
 } from "@/lib/funds/chart-range";
 import { drawdownToneClass, returnToneClass, visualToneColors } from "@/lib/visual-tones";
 
@@ -50,13 +47,6 @@ const chartPalette = {
 };
 
 type ChartView = "performance" | "drawdown" | "marketCycles";
-
-type PositionedMarketCycleLabel = {
-  cycle: MarketCyclePerformance;
-  presentation: MarketCycleLabelPresentation;
-  left: number;
-  width: number;
-};
 
 export type DetailBaselineOption = {
   id: string;
@@ -108,15 +98,14 @@ function ChartViewSwitch({ value, onChange, className, testId }: {
   );
 }
 
-const StableFundChart = memo(function StableFundChart({ option, onClick, onAxisPointer, onFinished, onChartReady }: {
+const StableFundChart = memo(function StableFundChart({ option, onClick, onAxisPointer, onChartReady }: {
   option: EChartsOption;
   revision: string;
   onClick: (parameters: unknown) => void;
   onAxisPointer: (parameters: unknown) => void;
-  onFinished: () => void;
   onChartReady: (instance: EChartsType) => void;
 }) {
-  return <ThemedEChart option={option} height={350} onEvents={{ click: onClick, updateAxisPointer: onAxisPointer, finished: onFinished }} onChartReady={onChartReady} />;
+  return <ThemedEChart option={option} height={350} onEvents={{ click: onClick, updateAxisPointer: onAxisPointer }} onChartReady={onChartReady} />;
 }, (previous, next) => previous.revision === next.revision);
 
 function formatReturn(value: number | null | undefined) {
@@ -194,14 +183,9 @@ export function DetailPerformanceChart({
   const [showDividendMarkers, setShowDividendMarkers] = useState(false);
   const [activePointDate, setActivePointDate] = useState<string | null>(null);
   const [selectedTouchRange, setSelectedTouchRange] = useState<ChartDateRange | null>(null);
-  const [selectedMarketCycleReadoutId, setSelectedMarketCycleReadoutId] = useState<string | null>(null);
-  const [positionedMarketCycleLabels, setPositionedMarketCycleLabels] = useState<PositionedMarketCycleLabel[]>([]);
   const benchmarkMenuRef = useRef<HTMLDivElement>(null);
   const managerCardRef = useRef<HTMLElement>(null);
-  const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<EChartsType | null>(null);
-  const marketCycleMetricsRef = useRef<MarketCyclePerformance[]>([]);
-  const hasComparisonRef = useRef(false);
   const activeTouchDatesRef = useRef(new Map<number, string>());
   const currentManagerStartDate = useMemo(
     () => resolveCurrentManagerStartDate(managerTenures),
@@ -626,14 +610,12 @@ export function DetailPerformanceChart({
     activeTouchDatesRef.current.clear();
     setSelectedTouchRange(null);
     setActivePointDate(null);
-    setSelectedMarketCycleReadoutId(null);
   }
 
   function changeChartView(view: ChartView) {
     setChartView(view);
     setSelectedManagerMarkerDate(null);
     setSelectedDividendMarkerDate(null);
-    setSelectedMarketCycleReadoutId(null);
   }
 
   const plottedSeries = chartView === "drawdown"
@@ -641,11 +623,6 @@ export function DetailPerformanceChart({
     : chartView === "marketCycles"
       ? marketCycleSegments.flatMap((segment) => segment.series)
       : displayedSeries;
-  useEffect(() => {
-    marketCycleMetricsRef.current = marketCycleMetrics;
-    hasComparisonRef.current = hasComparison;
-  }, [hasComparison, marketCycleMetrics]);
-  const selectedMarketCycleReadout = marketCycleMetrics.find((cycle) => cycle.id === selectedMarketCycleReadoutId) ?? null;
   const axisDomain = buildPaddedValueAxisDomain(
     plottedSeries.flatMap((series) => series.points.map((point) => (
       "drawdown" in point ? point.drawdown * 100 : point.returnRate * 100
@@ -819,62 +796,6 @@ export function DetailPerformanceChart({
     `colors:${chartSingleColor}:${chartSeriesColors.join(",")}`,
   ].join("|");
 
-  const updatePositionedMarketCycleLabels = useCallback(() => {
-    const instance = chartInstanceRef.current;
-    const container = chartContainerRef.current;
-    if (!instance || !container || chartView !== "marketCycles") {
-      setPositionedMarketCycleLabels((current) => current.length ? [] : current);
-      return;
-    }
-
-    const chartWidth = instance.getWidth();
-    const nextLabels = marketCycleMetricsRef.current.flatMap((cycle, cycleIndex): PositionedMarketCycleLabel[] => {
-      const fromPixel = instance.convertToPixel({ xAxisIndex: 0 }, cycle.from);
-      const toPixel = instance.convertToPixel({ xAxisIndex: 0 }, cycle.to ?? cycle.from);
-      if (typeof fromPixel !== "number" || typeof toPixel !== "number" || !Number.isFinite(fromPixel) || !Number.isFinite(toPixel)) return [];
-      const left = Math.max(0, Math.min(chartWidth, Math.min(fromPixel, toPixel)));
-      const right = Math.max(0, Math.min(chartWidth, Math.max(fromPixel, toPixel)));
-      const width = Math.max(0, right - left);
-      if (width < 2) return [];
-      return [{
-        cycle,
-        presentation: buildMarketCycleLabelPresentation(cycle, width, hasComparisonRef.current, cycleIndex),
-        left,
-        width,
-      }];
-    });
-
-    const signature = (labels: PositionedMarketCycleLabel[]) => labels
-      .map(({ cycle, presentation, left, width }) => `${cycle.id}:${left.toFixed(1)}:${width.toFixed(1)}:${presentation.mode}:${presentation.fontSize}`)
-      .join("|");
-    setPositionedMarketCycleLabels((current) => signature(current) === signature(nextLabels) ? current : nextLabels);
-  }, [chartView]);
-
-  const handleChartFinished = useCallback(() => {
-    window.requestAnimationFrame(updatePositionedMarketCycleLabels);
-  }, [updatePositionedMarketCycleLabels]);
-
-  useEffect(() => {
-    const container = chartContainerRef.current;
-    if (!container || chartView !== "marketCycles") {
-      setPositionedMarketCycleLabels((current) => current.length ? [] : current);
-      return;
-    }
-    let animationFrame = window.requestAnimationFrame(updatePositionedMarketCycleLabels);
-    const observer = new ResizeObserver(() => {
-      window.cancelAnimationFrame(animationFrame);
-      chartInstanceRef.current?.resize({ width: container.clientWidth });
-      animationFrame = window.requestAnimationFrame(() => {
-        animationFrame = window.requestAnimationFrame(updatePositionedMarketCycleLabels);
-      });
-    });
-    observer.observe(container);
-    return () => {
-      window.cancelAnimationFrame(animationFrame);
-      observer.disconnect();
-    };
-  }, [chartRevision, chartView, updatePositionedMarketCycleLabels]);
-
   const statusMessages = [rangeMessage, comparisonMessage, comparisonCoverageMessage]
     .filter((message): message is string => Boolean(message));
 
@@ -924,7 +845,6 @@ export function DetailPerformanceChart({
             </div>
           ) : fundSeries?.points.length ? <p className="mt-2 text-xs text-muted-foreground">区间内不足两个有效点，暂不计算收益率。</p> : null}
           <div
-            ref={chartContainerRef}
             data-testid="fund-nav-chart-touch-area"
             className="relative mt-0.5 min-w-0 overflow-hidden"
             style={{ touchAction: "pan-y" }}
@@ -938,50 +858,8 @@ export function DetailPerformanceChart({
               revision={chartRevision}
               onClick={handleChartClick}
               onAxisPointer={handleAxisPointer}
-              onFinished={handleChartFinished}
               onChartReady={(instance) => { chartInstanceRef.current = instance; }}
             />
-            {chartView === "marketCycles" ? (
-              <div data-testid="market-cycle-label-layer" className="pointer-events-none absolute inset-0 z-10 overflow-hidden">
-                {positionedMarketCycleLabels.map(({ cycle, presentation, left, width }) => {
-                  const isVertical = presentation.mode === "vertical";
-                  const top = presentation.mode === "full" ? 28 : presentation.mode === "compact" ? 28 + presentation.lane * 48 : 28 + presentation.lane * 96;
-                  return (
-                    <button
-                      key={cycle.id}
-                      type="button"
-                      data-testid="market-cycle-label"
-                      data-label-mode={presentation.mode}
-                      aria-label={presentation.ariaLabel}
-                      title={presentation.ariaLabel}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setSelectedTouchRange(null);
-                        setSelectedMarketCycleReadoutId(null);
-                        setActivePointDate(cycle.to);
-                      }}
-                      className={`pointer-events-auto absolute z-10 border-0 bg-transparent p-0 font-medium tracking-[-0.02em] outline-none hover:underline focus-visible:ring-1 focus-visible:ring-foreground ${cycle.kind === "bull" ? "text-[#9d2b22]" : cycle.kind === "bear" ? "text-[#24688f]" : "text-[#80591d]"} ${isVertical ? "whitespace-nowrap text-left" : "overflow-hidden text-center"}`}
-                      style={isVertical ? {
-                        left: left + width / 2,
-                        top,
-                        fontSize: presentation.fontSize,
-                        lineHeight: `${presentation.lineHeight}px`,
-                        transform: "rotate(90deg)",
-                        transformOrigin: "top left",
-                      } : {
-                        left,
-                        top,
-                        width,
-                        fontSize: presentation.fontSize,
-                        lineHeight: `${presentation.lineHeight}px`,
-                      }}
-                    >
-                      {presentation.lines.map((line) => <span key={line} className={isVertical ? "inline" : "block truncate"}>{line}</span>)}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
           </div>
           <div data-testid="fund-chart-range-controls-row" className="mt-1 flex min-w-0 flex-wrap items-start gap-1">
             <div className="min-w-0 flex-1 basis-[12rem]">
@@ -1036,23 +914,7 @@ export function DetailPerformanceChart({
             </div>
           </div>
           <section data-testid="fund-performance-readout" aria-live="polite" className="border border-border bg-[color-mix(in_srgb,var(--card)_88%,var(--muted))] px-3 py-3 shadow-[inset_3px_0_0_var(--accent)]">
-            {selectedMarketCycleReadout ? (
-              <>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">牛熊区间</p>
-                    <p className="mt-1 text-sm font-semibold">{selectedMarketCycleReadout.label}</p>
-                    <p className="mt-1 font-mono text-[11px] text-muted-foreground">{selectedMarketCycleReadout.from} → {selectedMarketCycleReadout.to}</p>
-                  </div>
-                  <button type="button" onClick={() => setSelectedMarketCycleReadoutId(null)} className="min-h-9 shrink-0 border border-border bg-background px-3 text-xs text-muted-foreground">关闭</button>
-                </div>
-                <div className={`mt-3 grid gap-px bg-border ${hasComparison ? "grid-cols-3" : "grid-cols-1"}`}>
-                  <div className="bg-background p-2"><p className="text-[10px] text-muted-foreground">主标年化</p><p className={`mt-1 font-semibold ${returnToneClass(selectedMarketCycleReadout.primaryAnnualizedReturn ?? 0)}`}>{formatReturn(selectedMarketCycleReadout.primaryAnnualizedReturn)}</p></div>
-                  {hasComparison ? <div className="bg-background p-2"><p className="text-[10px] text-muted-foreground">基准年化</p><p className={`mt-1 font-semibold ${returnToneClass(selectedMarketCycleReadout.baselineAnnualizedReturn ?? 0)}`}>{formatReturn(selectedMarketCycleReadout.baselineAnnualizedReturn)}</p></div> : null}
-                  {hasComparison ? <div className="bg-background p-2"><p className="text-[10px] text-muted-foreground">年化超额</p><p className={`mt-1 font-semibold ${returnToneClass(selectedMarketCycleReadout.annualizedExcessReturn ?? 0)}`}>{formatReturn(selectedMarketCycleReadout.annualizedExcessReturn)}</p></div> : null}
-                </div>
-              </>
-            ) : selectedTouchRange ? (
+            {selectedTouchRange ? (
               <>
                 <div className="flex items-start justify-between gap-3">
                   <div><p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">双指区间</p><p className="mt-1 font-mono text-xs font-semibold">{selectedTouchRange.from} → {selectedTouchRange.to}</p></div>

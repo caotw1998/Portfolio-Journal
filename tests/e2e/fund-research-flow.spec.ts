@@ -241,19 +241,10 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await expect(page.getByRole("button", { name: "回撤曲线" })).toBeVisible();
   await page.getByRole("button", { name: "牛熊业绩" }).click();
   await expect(page.getByRole("button", { name: "牛熊业绩" })).toHaveAttribute("aria-pressed", "true");
-  const cycleLabels = page.getByTestId("market-cycle-label");
-  await expect(cycleLabels).toHaveCount(9);
-  for (const label of await cycleLabels.all()) await expect(label).toHaveAttribute("aria-label", /主标年化/);
+  await expect(page.getByTestId("market-cycle-label")).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
-  await expect.poll(() => cycleLabels.evaluateAll((labels) => labels.some((label) => label.getAttribute("data-label-mode") === "vertical"))).toBe(true);
-  const mobileChartBox = await page.getByTestId("fund-nav-chart-touch-area").boundingBox();
-  expect(mobileChartBox).not.toBeNull();
-  for (const box of await cycleLabels.evaluateAll((labels) => labels.map((label) => label.getBoundingClientRect()).map(({ left, right }) => ({ left, right })))) {
-    expect(box.left).toBeGreaterThanOrEqual(mobileChartBox!.x - 1);
-    expect(box.right).toBeLessThanOrEqual(mobileChartBox!.x + mobileChartBox!.width + 1);
-  }
-  await page.screenshot({ path: "/tmp/market-cycle-labels-mobile.png", fullPage: true });
+  await page.screenshot({ path: "/tmp/market-cycle-backgrounds-mobile.png", fullPage: true });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await expect(page.getByRole("heading", { name: "指数成分股" })).toBeVisible();
   await expect(page.getByText("贵州茅台")).toBeVisible();
@@ -289,14 +280,7 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await page.getByRole("button", { name: "易方达消费行业股票 · 110022" }).click();
   await expect(page.getByRole("button", { name: "基准：易方达消费行业股票" })).toBeVisible();
   await expect(page.getByText("基准收益")).toBeVisible();
-  const comparedCycleLabel = page.getByTestId("market-cycle-label").first();
-  await expect(comparedCycleLabel).toHaveAttribute("aria-label", /基准年化/);
-  await expect(comparedCycleLabel).toHaveAttribute("aria-label", /年化超额/);
-  await comparedCycleLabel.click();
-  const cycleReadout = page.getByTestId("fund-performance-readout");
-  await expect(cycleReadout).toContainText("主标年化");
-  await expect(cycleReadout).toContainText("基准年化");
-  await expect(cycleReadout).toContainText("区间超额");
+  await expect(page.getByTestId("market-cycle-label")).toHaveCount(0);
   expect(detailCompareRequests).toBe(1);
   await page.getByRole("button", { name: /时间区间：/ }).click();
   await page.getByRole("menuitem", { name: "1年" }).click();
