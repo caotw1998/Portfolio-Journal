@@ -369,7 +369,7 @@ async function syncSection(fundId: string, code: string, market: string, section
       ? navSource.coverageJson as Record<string, unknown>
       : null;
     const dividendEventsComplete = previousCoverage?.dividendEventsComplete === true;
-    const performanceAdjustmentCurrent = previousCoverage?.performanceAdjustmentVersion === 2;
+    const performanceAdjustmentCurrent = previousCoverage?.performanceAdjustmentVersion === 3;
     const refreshFrom = latest && dividendEventsComplete && performanceAdjustmentCurrent
       ? new Date(latest.valuationDate.getTime() - 7 * DAY_MS).toISOString().slice(0, 10)
       : undefined;

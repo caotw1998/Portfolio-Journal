@@ -704,7 +704,7 @@ export function createEastmoneyFundProvider(): FundDataProvider {
               sourceUrl: url,
               raw: { unitTrend: extractVariable(text, "Data_netWorthTrend"), accumulatedTrend: extractVariable(text, "Data_ACWorthTrend") },
               ...(dividendArchive ? { dividendEvents: dividendArchive.data } : {}),
-              coverage: { expectedCount: data.length, fetchedCount: data.length, firstDate: data[0]!.valuationDate, lastDate: data.at(-1)!.valuationDate, complete: true, method: "full_source", dividendEventsComplete: dividendArchive !== null, performanceAdjustmentVersion: 2 },
+              coverage: { expectedCount: data.length, fetchedCount: data.length, firstDate: data[0]!.valuationDate, lastDate: data.at(-1)!.valuationDate, complete: true, method: "full_source", dividendEventsComplete: dividendArchive !== null, performanceAdjustmentVersion: 3 },
             };
           }
         } catch {
@@ -736,7 +736,7 @@ export function createEastmoneyFundProvider(): FundDataProvider {
         sourceUrl,
         raw: { totalCount, pageSize, pageCount },
         ...(dividendArchive ? { dividendEvents: dividendArchive.data } : {}),
-        coverage: { expectedCount: totalCount, fetchedCount: data.length, firstDate: data[0]?.valuationDate ?? null, lastDate: data.at(-1)?.valuationDate ?? null, complete, method: "paginated_api", dividendEventsComplete: dividendArchive !== null, performanceAdjustmentVersion: 2 },
+        coverage: { expectedCount: totalCount, fetchedCount: data.length, firstDate: data[0]?.valuationDate ?? null, lastDate: data.at(-1)?.valuationDate ?? null, complete, method: "paginated_api", dividendEventsComplete: dividendArchive !== null, performanceAdjustmentVersion: 3 },
       };
     },
     async managers(code) {

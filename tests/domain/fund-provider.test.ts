@@ -138,7 +138,7 @@ describe("Eastmoney fund provider parsers", () => {
     }));
 
     const result = await createEastmoneyFundProvider().nav("110022");
-    expect(result.coverage).toMatchObject({ expectedCount: 3, fetchedCount: 3, complete: true, method: "paginated_api" });
+    expect(result.coverage).toMatchObject({ expectedCount: 3, fetchedCount: 3, complete: true, method: "paginated_api", performanceAdjustmentVersion: 3 });
     expect(result.data.map((point) => point.valuationDate)).toEqual(["2026-01-01", "2026-01-02", "2026-01-03"]);
   });
 
