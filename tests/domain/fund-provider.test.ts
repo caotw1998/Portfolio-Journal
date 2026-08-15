@@ -87,6 +87,16 @@ describe("Eastmoney fund provider parsers", () => {
     expect(points[1]?.dailyReturn).toBeCloseTo(0.22345, 10);
   });
 
+  test("reconstructs NAV movement when the provider reports an incorrect zero daily return", () => {
+    const source = [
+      'var Data_netWorthTrend = [{"x":1609459200000,"y":1,"equityReturn":0},{"x":1609545600000,"y":1.1,"equityReturn":0}];',
+      'var Data_ACWorthTrend = [[1609459200000,1],[1609545600000,1.1]];',
+    ].join("\n");
+    const point = eastmoneyParsers.parseFullNavSource(source)[1];
+    expect(point).toEqual(expect.objectContaining({ valuationDate: "2021-01-02" }));
+    expect(point?.dailyReturn).toBeCloseTo(0.1, 10);
+  });
+
   test("reconstructs the 512890 split-adjusted inception return from exact NAV values", () => {
     const source = [
       'var Data_netWorthTrend = [{"x":1545177600000,"y":1,"equityReturn":0},{"x":1634774400000,"y":1.6357,"equityReturn":63.57},{"x":1634860800000,"y":0.8002,"equityReturn":-2.16,"unitMoney":"拆分：每份基金份额分拆2.0份"},{"x":1785715200000,"y":1.2032,"equityReturn":50.36}];',

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   A_SHARE_MARKET_CYCLE_OPTIONS,
+  isValidDateKey,
   resolveFixedRange,
   resolveFixedStartRange,
   resolvePresetRange,
@@ -12,6 +13,12 @@ import {
 } from "@/lib/funds/chart-range";
 
 describe("chart market cycle ranges", () => {
+  test("validates manually entered calendar dates", () => {
+    expect(isValidDateKey("2026-08-15")).toBe(true);
+    expect(isValidDateKey("2026-02-29")).toBe(false);
+    expect(isValidDateKey("2026/08/15")).toBe(false);
+  });
+
   test("exposes the approved A-share cycle anchors", () => {
     expect(A_SHARE_MARKET_CYCLE_OPTIONS).toHaveLength(9);
     expect(A_SHARE_MARKET_CYCLE_OPTIONS[0]).toEqual({ id: "a-share-market-2024", label: "2024 行情", kind: "market", from: "2024-09-24", to: null });

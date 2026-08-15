@@ -12,6 +12,7 @@ import { searchLibraryOptions } from "@/lib/funds/library-search";
 import {
   formatAxisDateLabel,
   formatEdgeAxisDateLabel,
+  isValidDateKey,
   type ChartDateRange,
   type ChartRangePreset,
   resolveRangeInputDefaults,
@@ -362,8 +363,8 @@ export function BenchmarkManager({
     }
 
     if (nextPreset === "custom") {
-      if (!nextCustomFrom || !nextCustomTo) {
-        throw new Error("请完整填写自定义时间区间。");
+      if (!isValidDateKey(nextCustomFrom) || !isValidDateKey(nextCustomTo)) {
+        throw new Error("请输入有效日期，格式为 YYYY-MM-DD。");
       }
 
       if (nextCustomFrom > nextCustomTo) {

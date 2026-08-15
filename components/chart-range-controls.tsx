@@ -182,9 +182,9 @@ export function ChartRangeControls({
 
       {preset === "custom" ? (
         <div className="mt-1.5 flex w-full flex-wrap items-center gap-1">
-          <input aria-label="开始日期" type="date" value={customFrom} onChange={(event) => onCustomFromChange(event.target.value)} disabled={disabled} className="h-8 min-w-0 flex-1 border border-border bg-background px-2 text-[11px]" />
+          <input aria-label="开始日期" type="text" inputMode="numeric" autoComplete="off" placeholder="YYYY-MM-DD" value={customFrom} onChange={(event) => onCustomFromChange(event.target.value)} disabled={disabled} className="h-8 min-w-0 flex-1 border border-border bg-background px-2 font-mono text-[11px]" />
           <span className="text-[11px] text-muted-foreground">至</span>
-          <input aria-label="结束日期" type="date" value={customTo} onChange={(event) => onCustomToChange(event.target.value)} disabled={disabled} className="h-8 min-w-0 flex-1 border border-border bg-background px-2 text-[11px]" />
+          <input aria-label="结束日期" type="text" inputMode="numeric" autoComplete="off" placeholder="YYYY-MM-DD" value={customTo} onChange={(event) => onCustomToChange(event.target.value)} disabled={disabled} className="h-8 min-w-0 flex-1 border border-border bg-background px-2 font-mono text-[11px]" />
           <button type="button" onClick={onApplyCustom} disabled={disabled || !customFrom || !customTo} className="h-8 border border-border bg-background px-2.5 text-[11px] font-medium">应用</button>
         </div>
       ) : null}

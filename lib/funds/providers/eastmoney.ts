@@ -206,13 +206,11 @@ function reconstructExactDailyReturns(input: FundNavPoint[]) {
     const splitFactor = point.splitFactor && point.splitFactor > 0 ? point.splitFactor : 1;
     const reconstructed = (point.unitNav * splitFactor + dividendAmount) / previous.unitNav - 1;
     const providerReturn = point.dailyReturn;
-    const recognizedAction = dividendAmount > 0 || splitFactor !== 1;
-    const shouldUseProvider = !recognizedAction
-      && typeof providerReturn === "number"
+    const canReconstruct = Number.isFinite(reconstructed) && reconstructed > -1;
+    const canUseProvider = typeof providerReturn === "number"
       && Number.isFinite(providerReturn)
-      && providerReturn > -1
-      && Math.abs(reconstructed - providerReturn) > 0.001;
-    return { ...point, dailyReturn: shouldUseProvider ? providerReturn : reconstructed };
+      && providerReturn > -1;
+    return { ...point, dailyReturn: canReconstruct ? reconstructed : canUseProvider ? providerReturn : null };
   });
 }
 

@@ -10,6 +10,7 @@ import {
   A_SHARE_MARKET_CYCLE_OPTIONS,
   formatAxisDateLabel,
   formatEdgeAxisDateLabel,
+  isValidDateKey,
   resolveFixedRange,
   resolveFixedStartRange,
   resolvePresetRange,
@@ -417,8 +418,8 @@ export function DetailPerformanceChart({
 
   function applyCustomRange() {
     setRangeMessage(null);
-    if (!customFrom || !customTo) {
-      setRangeMessage("请完整填写自定义时间区间。");
+    if (!isValidDateKey(customFrom) || !isValidDateKey(customTo)) {
+      setRangeMessage("请输入有效日期，格式为 YYYY-MM-DD。");
       return;
     }
     if (customFrom > customTo) {

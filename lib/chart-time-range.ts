@@ -71,6 +71,15 @@ export function parseDateKey(dateKey: string) {
   );
 }
 
+export function isValidDateKey(dateKey: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return false;
+  try {
+    return formatDateKey(parseDateKey(dateKey)) === dateKey;
+  } catch {
+    return false;
+  }
+}
+
 export function formatDateKey(date: Date) {
   return date.toISOString().slice(0, 10);
 }
