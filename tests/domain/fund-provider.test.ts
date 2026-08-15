@@ -32,6 +32,20 @@ describe("Eastmoney fund provider parsers", () => {
     expect(points).toEqual([{ valuationDate: "2026-07-17", publishedAt: null, unitNav: 1.2345, accumulatedNav: 3.4567, dailyReturn: 0.0125, dividendAmount: 0.23473 }]);
   });
 
+  test("parses complete dividend schedules using the ex-date amount per share", () => {
+    const html = `
+      <table><tbody><tr><td>无关内容</td></tr></tbody></table>
+      <table><tbody>
+        <tr><th>年份</th><th>权益登记日</th><th>除息日</th><th>每10份分红</th><th>分红发放日</th></tr>
+        <tr><td>2025年</td><td>2025-12-22</td><td>2025-12-23</td><td>每10份派现金1.0530元</td><td>2025-12-26</td></tr>
+        <tr><td>2023年</td><td>2023-12-20</td><td>2023-12-21</td><td>每10份派现金4.3700元</td><td>2023-12-26</td></tr>
+      </tbody></table>`;
+    expect(eastmoneyParsers.parseDividendArchive(html)).toEqual([
+      { recordDate: "2023-12-20", exDate: "2023-12-21", paymentDate: "2023-12-26", amount: 0.437, description: "每10份派现金4.3700元" },
+      { recordDate: "2025-12-22", exDate: "2025-12-23", paymentDate: "2025-12-26", amount: 0.1053, description: "每10份派现金1.0530元" },
+    ]);
+  });
+
   test("does not interpret an ETF share split as a cash dividend", () => {
     const points = eastmoneyParsers.parseNavPayload({ Data: { LSJZList: [
       { FSRQ: "2026-07-17", DWJZ: "0.6240", LJJZ: "2.4960", JZZZL: "-11.08", FHFCZ: "4.0", FHSP: "每份基金份额分拆4.0份" },

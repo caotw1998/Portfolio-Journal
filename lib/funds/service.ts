@@ -375,11 +375,13 @@ async function syncSection(fundId: string, code: string, market: string, section
       : undefined;
     const result = await provider.nav(code, refreshFrom);
     if (result.data.length === 0) throw new Error("未获取到基金净值。");
+    const dividendArchive = result.dividendEvents;
+    const hasCompleteDividendArchive = Array.isArray(dividendArchive);
     if (result.coverage) {
-      result.coverage = { ...result.coverage, dividendEventsComplete: dividendEventsComplete || !refreshFrom };
+      result.coverage = { ...result.coverage, dividendEventsComplete: hasCompleteDividendArchive };
     }
     const replaceFrom = new Date(`${result.data[0]!.valuationDate}T00:00:00Z`);
-    const dividendEvents = result.data.flatMap((point) => point.dividendAmount && point.dividendAmount > 0 ? [{
+    const navDividendEvents = result.data.flatMap((point) => point.dividendAmount && point.dividendAmount > 0 ? [{
       fundId,
       exDate: new Date(`${point.valuationDate}T00:00:00Z`),
       amount: point.dividendAmount,
@@ -387,6 +389,18 @@ async function syncSection(fundId: string, code: string, market: string, section
       source: provider.source,
       sourceUrl: result.sourceUrl,
     }] : []);
+    const dividendEvents = hasCompleteDividendArchive
+      ? dividendArchive.map((event) => ({
+        fundId,
+        recordDate: event.recordDate ? new Date(`${event.recordDate}T00:00:00Z`) : null,
+        exDate: new Date(`${event.exDate}T00:00:00Z`),
+        paymentDate: event.paymentDate ? new Date(`${event.paymentDate}T00:00:00Z`) : null,
+        amount: event.amount,
+        description: event.description ?? `每份派现金${event.amount}元`,
+        source: provider.source,
+        sourceUrl: `${"https://fundf10.eastmoney.com"}/fhsp_${encodeURIComponent(code)}.html`,
+      }))
+      : navDividendEvents;
     await prisma.$transaction(async (transaction) => {
       await transaction.fundNavSnapshot.deleteMany({ where: { fundId, valuationDate: { gte: replaceFrom } } });
       await transaction.fundNavSnapshot.createMany({
@@ -400,7 +414,9 @@ async function syncSection(fundId: string, code: string, market: string, section
           source: provider.source,
         })),
       });
-      await transaction.fundDividendEvent.deleteMany({ where: { fundId, source: provider.source, exDate: { gte: replaceFrom } } });
+      await transaction.fundDividendEvent.deleteMany({ where: hasCompleteDividendArchive
+        ? { fundId, source: provider.source }
+        : { fundId, source: provider.source, exDate: { gte: replaceFrom } } });
       if (dividendEvents.length) await transaction.fundDividendEvent.createMany({ data: dividendEvents });
     });
     await storeSourceResult(fundId, section, result);

@@ -72,6 +72,7 @@ type ComparisonResponse = {
 };
 
 type VisibleManagerMarker = ManagerChangeMarker & { returnRate: number };
+type DividendEventDetail = { recordDate: string | null; exDate: string; paymentDate: string | null; amount: number };
 
 function ChartViewSwitch({ value, onChange, className, testId }: {
   value: ChartView;
@@ -135,6 +136,7 @@ export function DetailPerformanceChart({
   primaryName,
   primaryMarket,
   points,
+  dividendEvents = [],
   managerTenures,
   baselines,
   chartSingleColor = visualToneColors.chartSingle,
@@ -145,6 +147,7 @@ export function DetailPerformanceChart({
   primaryName: string;
   primaryMarket: string;
   points: FundNavChartPoint[];
+  dividendEvents?: DividendEventDetail[];
   managerTenures: FundManagerTenureInput[];
   baselines: DetailBaselineOption[];
   chartSingleColor?: string;
@@ -298,12 +301,13 @@ export function DetailPerformanceChart({
   const selectedManagerMarker = visibleManagerMarkers.find(
     (marker) => marker.valuationDate === selectedManagerMarkerDate,
   );
+  const dividendEventsByDate = useMemo(() => new Map(dividendEvents.map((event) => [event.exDate, event])), [dividendEvents]);
   const visibleDividendMarkers = fundReturnSeries.points.flatMap((point) => {
     if (!point.dividendAmount || point.dividendAmount <= 0) return [];
     if (hasComparison && visibleRange
       && (point.date < visibleRange.from || point.date > visibleRange.to)) return [];
     const displayedPoint = fundSeries?.points.find((item) => item.date === point.date);
-    return displayedPoint ? [{ date: point.date, amount: point.dividendAmount, unitNav: point.unitNav, returnRate: displayedPoint.returnRate }] : [];
+    return displayedPoint ? [{ date: point.date, amount: point.dividendAmount, unitNav: point.unitNav, returnRate: displayedPoint.returnRate, event: dividendEventsByDate.get(point.date) ?? null }] : [];
   });
   const selectedDividendMarker = visibleDividendMarkers.find((marker) => marker.date === selectedDividendMarkerDate);
   const activeManagerMarker = visibleManagerMarkers.find((marker) => marker.valuationDate === displayedPointDate);
@@ -801,11 +805,11 @@ export function DetailPerformanceChart({
 
   return (
     <div>
-      {primaryKind === "benchmark" ? (
+      {primaryKind === "benchmark" || hasComparison ? (
         <div className="border-b border-border pb-3">
           <p className="font-mono text-xs text-muted-foreground" aria-live="polite">
             {visibleRange
-              ? `${visibleRange.from} 至 ${visibleRange.to} · ${chartDates.length} 个观测点`
+              ? `${hasComparison ? "与基准实际共同比较区间：" : "实际计算区间："}${visibleRange.from} 至 ${visibleRange.to} · ${chartDates.length} 个观测点`
               : "所选区间暂无可比较数据"}
           </p>
         </div>
@@ -960,7 +964,7 @@ export function DetailPerformanceChart({
                   })}
                 </div>
                 {activeManagerMarker ? <p className="mt-2 text-xs text-[#b42318]">经理更换 {activeManagerMarker.changes.map((change) => `${change.date} · 新任 ${change.managerNames.join("、")}`).join("；")}</p> : null}
-                {activeDividendMarker ? <p className="mt-2 text-xs text-[#8a5b16]">基金分红 {activeDividendMarker.date} · 每份 {activeDividendMarker.amount.toFixed(5)} 元</p> : null}
+                {activeDividendMarker ? <p className="mt-2 text-xs text-[#8a5b16]">基金分红（除息日）{activeDividendMarker.date} · 每份 {activeDividendMarker.amount.toFixed(5)} 元</p> : null}
               </>
             )}
           </section>
@@ -984,6 +988,8 @@ export function DetailPerformanceChart({
               </div>
               <dl className="mt-3 grid grid-cols-[5.5rem_1fr] gap-y-2 text-sm">
                 <dt className="text-muted-foreground">除息日期</dt><dd className="font-mono">{selectedDividendMarker.date}</dd>
+                <dt className="text-muted-foreground">权益登记日</dt><dd className="font-mono">{selectedDividendMarker.event?.recordDate ?? "公开来源未披露"}</dd>
+                <dt className="text-muted-foreground">分红发放日</dt><dd className="font-mono">{selectedDividendMarker.event?.paymentDate ?? "公开来源未披露"}</dd>
                 <dt className="text-muted-foreground">每份分红</dt><dd>{selectedDividendMarker.amount.toFixed(5)} 元</dd>
                 <dt className="text-muted-foreground">当日净值</dt><dd>{selectedDividendMarker.unitNav.toFixed(4)}</dd>
               </dl>

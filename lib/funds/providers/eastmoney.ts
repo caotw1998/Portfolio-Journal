@@ -1,5 +1,6 @@
 import type {
   FundDataProvider,
+  FundDividendEventData,
   FundHoldingData,
   FundManagerData,
   FundNavPoint,
@@ -556,12 +557,35 @@ function parseHolders(source: string): FundHolderPoint[] {
   }));
 }
 
-function parseArchiveTableRows(source: string) {
-  const body = source.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i)?.[1];
-  if (!body) return [];
-  return Array.from(body.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi), (row) => (
+function parseArchiveTableRows(source: string, allBodies = false) {
+  const bodies = allBodies
+    ? Array.from(source.matchAll(/<tbody[^>]*>([\s\S]*?)<\/tbody>/gi), (match) => match[1]!)
+    : [source.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i)?.[1]].filter((body): body is string => Boolean(body));
+  return bodies.flatMap((body) => Array.from(body.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi), (row) => (
     Array.from(row[1]!.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi), (cell) => stripHtml(cell[1]!))
-  ));
+  )));
+}
+
+function parseDividendArchive(source: string): FundDividendEventData[] {
+  const events = new Map<string, FundDividendEventData>();
+  for (const cells of parseArchiveTableRows(source, true)) {
+    const firstDateIndex = cells.length >= 5 ? 1 : 0;
+    const recordDate = normalizeDate(cells[firstDateIndex]);
+    const exDate = normalizeDate(cells[firstDateIndex + 1]);
+    const paymentDate = normalizeDate(cells[firstDateIndex + 3]);
+    const amountText = cells[firstDateIndex + 2] ?? "";
+    const perTenShares = toNumber(amountText.match(/每\s*10\s*份[^\d]*([\d.]+)/)?.[1]) ?? toNumber(amountText);
+    const perShare = perTenShares === null ? null : Number((perTenShares / 10).toFixed(10));
+    if (!exDate || perShare === null || perShare <= 0) continue;
+    events.set(`${exDate}:${perShare}`, {
+      recordDate,
+      exDate,
+      paymentDate,
+      amount: perShare,
+      description: amountText || null,
+    });
+  }
+  return Array.from(events.values()).sort((left, right) => left.exDate.localeCompare(right.exDate));
 }
 
 function parseScaleArchive(source: string): FundScalePoint[] {
@@ -609,6 +633,12 @@ export function createEastmoneyFundProvider(): FundDataProvider {
   async function getFundData(code: string) {
     const url = `${FUND_DATA_BASE_URL}/${encodeURIComponent(code)}.js?v=${Date.now()}`;
     return { url, text: await requestText(url) };
+  }
+
+  async function getDividendArchive(code: string) {
+    const sourceUrl = `${FUND_ARCHIVE_BASE_URL}/fhsp_${encodeURIComponent(code)}.html`;
+    const text = await requestText(sourceUrl, sourceUrl);
+    return { sourceUrl, data: parseDividendArchive(text) };
   }
 
   async function getCapitalArchive(code: string) {
@@ -670,11 +700,13 @@ export function createEastmoneyFundProvider(): FundDataProvider {
           const { url, text } = await getFundData(code);
           const data = parseFullNavSource(text);
           if (data.length) {
+            const dividendArchive = await getDividendArchive(code).catch(() => null);
             return {
               data,
               sourceUrl: url,
               raw: { unitTrend: extractVariable(text, "Data_netWorthTrend"), accumulatedTrend: extractVariable(text, "Data_ACWorthTrend") },
-              coverage: { expectedCount: data.length, fetchedCount: data.length, firstDate: data[0]!.valuationDate, lastDate: data.at(-1)!.valuationDate, complete: true, method: "full_source", dividendEventsComplete: true, performanceAdjustmentVersion: 2 },
+              ...(dividendArchive ? { dividendEvents: dividendArchive.data } : {}),
+              coverage: { expectedCount: data.length, fetchedCount: data.length, firstDate: data[0]!.valuationDate, lastDate: data.at(-1)!.valuationDate, complete: true, method: "full_source", dividendEventsComplete: dividendArchive !== null, performanceAdjustmentVersion: 2 },
             };
           }
         } catch {
@@ -700,11 +732,13 @@ export function createEastmoneyFundProvider(): FundDataProvider {
         .sort((left, right) => left.valuationDate.localeCompare(right.valuationDate)));
       const complete = data.length === totalCount;
       if (!complete) throw new Error(`基金净值分页不完整（预期 ${totalCount} 条，实际 ${data.length} 条）。`);
+      const dividendArchive = await getDividendArchive(code).catch(() => null);
       return {
         data,
         sourceUrl,
         raw: { totalCount, pageSize, pageCount },
-        coverage: { expectedCount: totalCount, fetchedCount: data.length, firstDate: data[0]?.valuationDate ?? null, lastDate: data.at(-1)?.valuationDate ?? null, complete, method: "paginated_api", performanceAdjustmentVersion: 2 },
+        ...(dividendArchive ? { dividendEvents: dividendArchive.data } : {}),
+        coverage: { expectedCount: totalCount, fetchedCount: data.length, firstDate: data[0]?.valuationDate ?? null, lastDate: data.at(-1)?.valuationDate ?? null, complete, method: "paginated_api", dividendEventsComplete: dividendArchive !== null, performanceAdjustmentVersion: 2 },
       };
     },
     async managers(code) {
@@ -794,4 +828,5 @@ export const eastmoneyParsers = {
   parseFlowArchive,
   parseHolders,
   parseHolderArchive,
+  parseDividendArchive,
 };

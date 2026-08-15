@@ -39,6 +39,14 @@ export type FundNavPoint = {
   splitFactor?: number | null;
 };
 
+export type FundDividendEventData = {
+  recordDate: string | null;
+  exDate: string;
+  paymentDate: string | null;
+  amount: number;
+  description: string | null;
+};
+
 export type FundManagerData = {
   managerName: string;
   startDate: string | null;
@@ -136,6 +144,7 @@ export type ProviderResult<T> = {
   sourceUrl: string;
   raw: unknown;
   coverage?: FundNavCoverage;
+  dividendEvents?: FundDividendEventData[];
 };
 
 export type FundDataProvider = {
