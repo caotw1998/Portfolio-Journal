@@ -201,21 +201,21 @@ export function ResearchLibrary({
     });
   }
 
-  function sync(id?: string) {
+  function sync(id?: string, force = false) {
     run(async () => {
       const endpoint = id
         ? `/api/funds/${id}/sync?force=true`
-        : "/api/funds/sync?force=true";
+        : `/api/funds/sync${force ? "?force=true" : ""}`;
       const response = await fetch(endpoint, { method: "POST" });
       const body = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(body.error ?? "刷新失败。");
       await refreshFunds();
-      setMessage("公开资料已刷新。");
+      setMessage(force ? "全部公开资料已强制刷新。" : "已按数据有效期增量刷新公开资料。");
     });
   }
 
-  async function syncAllFundData(): Promise<FundSyncSummary> {
-    const response = await fetch("/api/funds/sync?force=true", { method: "POST" });
+  async function syncAllFundData(force = false): Promise<FundSyncSummary> {
+    const response = await fetch(`/api/funds/sync${force ? "?force=true" : ""}`, { method: "POST" });
     const body = (await response.json()) as {
       data?: { runId?: string; results?: unknown[] };
       error?: string;
@@ -254,7 +254,7 @@ export function ResearchLibrary({
   }
 
   function syncAllData() {
-    setGlobalSyncMessage("正在同步全部基金与指数数据，这可能需要几分钟……");
+    setGlobalSyncMessage("正在增量同步全部基金与指数数据……");
     setIsGlobalSyncing(true);
     startTransition(async () => {
       try {
@@ -276,6 +276,21 @@ export function ResearchLibrary({
         setGlobalSyncMessage(`${bothFailed ? "所有数据同步失败" : partiallyFailed ? "所有数据同步部分完成" : "所有数据同步完成"}：${fundSummary}；${benchmarkSummary}。`);
       } catch (error) {
         setGlobalSyncMessage(error instanceof Error ? error.message : "同步所有数据失败。");
+      } finally {
+        setIsGlobalSyncing(false);
+      }
+    });
+  }
+
+  function forceRefreshAllFunds() {
+    setGlobalSyncMessage("正在强制重新抓取全部基金资料，这可能需要几分钟……");
+    setIsGlobalSyncing(true);
+    startTransition(async () => {
+      try {
+        const result = await syncAllFundData(true);
+        setGlobalSyncMessage(`全部基金资料已强制刷新：基金 ${result.fundCount} 只（分区成功 ${result.completedSections}、失败 ${result.failedSections}）。`);
+      } catch (error) {
+        setGlobalSyncMessage(error instanceof Error ? error.message : "强制刷新全部基金失败。");
       } finally {
         setIsGlobalSyncing(false);
       }
@@ -506,14 +521,22 @@ export function ResearchLibrary({
               disabled={isPending || isGlobalSyncing}
               className="border border-accent bg-accent px-4 py-2 text-sm font-medium text-accent-foreground disabled:opacity-50"
             >
-              {isGlobalSyncing ? "正在同步全部数据…" : "一键同步所有数据"}
+              {isGlobalSyncing ? "正在同步全部数据…" : "一键增量同步"}
             </button>
             <button
               onClick={() => sync()}
               disabled={isPending || funds.length === 0}
               className="border border-border bg-background px-4 py-2 text-sm font-medium disabled:opacity-50"
             >
-              刷新全部基金
+              增量刷新全部基金
+            </button>
+            <button
+              type="button"
+              onClick={forceRefreshAllFunds}
+              disabled={isPending || isGlobalSyncing || funds.length === 0}
+              className="border border-border bg-background px-4 py-2 text-sm font-medium disabled:opacity-50"
+            >
+              强制刷新全部基金资料
             </button>
           </div>
         </div>

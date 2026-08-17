@@ -3,13 +3,14 @@ import { syncBenchmarkHistory } from "@/lib/domain/benchmarks";
 import { requireWorkspaceUser } from "@/lib/domain/session";
 
 export async function POST(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   try {
     const user = await requireWorkspaceUser();
     const { id } = await context.params;
-    const benchmark = await syncBenchmarkHistory(user.id, id);
+    const force = new URL(request.url).searchParams.get("force") === "true";
+    const benchmark = await syncBenchmarkHistory(user.id, id, fetch, { force });
     return jsonOk({ data: benchmark });
   } catch (error) {
     return jsonError(error);

@@ -50,6 +50,37 @@ describe("benchmark search persistence and sync", () => {
     expect(stored.priceSnapshots.map((point) => point.closeValue.toNumber())).toEqual([6380.1, 6412.45]);
   });
 
+  test("updates only the overlapping history window after the first sync", async () => {
+    const user = await prisma.user.create({ data: { email: createUniqueEmail("benchmark-incremental"), passwordHash: "test" } });
+    const benchmark = await createBenchmark(user.id, { code: "SPX", market: "GLOBAL", name: "标普500", sourceSymbol: "100.SPX" });
+    const firstFetch = vi.fn(async () => Response.json({ data: { klines: [
+      "2026-06-30,0,6200.00",
+      "2026-08-03,0,6400.00",
+    ] } }));
+
+    await syncBenchmarkHistory(user.id, benchmark.id, firstFetch);
+
+    const incrementalFetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      expect(url.searchParams.get("beg")).toBe("20260703");
+      return Response.json({ data: { klines: [
+        "2026-07-03,0,6220.00",
+        "2026-08-03,0,6410.00",
+        "2026-08-04,0,6425.00",
+      ] } });
+    });
+
+    await syncBenchmarkHistory(user.id, benchmark.id, incrementalFetch);
+
+    const stored = await prisma.benchmarkPriceSnapshot.findMany({ where: { benchmarkInstrumentId: benchmark.id }, orderBy: { date: "asc" } });
+    expect(stored.map((point) => [point.date.toISOString().slice(0, 10), point.closeValue.toNumber()])).toEqual([
+      ["2026-06-30", 6200],
+      ["2026-07-03", 6220],
+      ["2026-08-03", 6410],
+      ["2026-08-04", 6425],
+    ]);
+  });
+
   test("stores official CSI valuation history and current disclosed fields", async () => {
     const user = await prisma.user.create({ data: { email: createUniqueEmail("benchmark-valuation"), passwordHash: "test" } });
     const benchmark = await createBenchmark(user.id, { code: "000300", market: "CN", name: "沪深300指数" });

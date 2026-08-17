@@ -111,10 +111,10 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await page.getByRole("button", { name: /^港股 0$/ }).click();
   await expect(page.getByText("这个分类还没有基金")).toBeVisible();
   await page.getByRole("button", { name: /^全部 1$/ }).click();
-  await expect(page.getByRole("button", { name: "刷新全部基金" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "增量刷新全部基金" })).toBeEnabled();
   let fundSyncRequests = 0;
   let benchmarkSyncRequests = 0;
-  await page.route("**/api/funds/sync?force=true", async (route) => {
+  await page.route("**/api/funds/sync", async (route) => {
     fundSyncRequests += 1;
     await new Promise((resolve) => setTimeout(resolve, 100));
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { runId: "e2e-global-sync", results: [{}] } }) });

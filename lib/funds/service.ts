@@ -15,6 +15,7 @@ import { rankFundSearchResults } from "@/lib/funds/search";
 
 const provider = createEastmoneyFundProvider();
 const DAY_MS = 24 * 60 * 60 * 1000;
+const FUND_SYNC_CONCURRENCY = 4;
 const SECTION_TTL = {
   nav: 6 * 60 * 60 * 1000,
   profile: DAY_MS,
@@ -971,8 +972,8 @@ export async function syncAllFunds(userId: string, force = false) {
   });
   const results = [];
   try {
-    for (let index = 0; index < funds.length; index += 2) {
-      const batch = funds.slice(index, index + 2);
+    for (let index = 0; index < funds.length; index += FUND_SYNC_CONCURRENCY) {
+      const batch = funds.slice(index, index + FUND_SYNC_CONCURRENCY);
       results.push(...await Promise.all(batch.map(async (row) => {
         const result = await syncFund(userId, row.fundId, force);
         const fundSections = sectionsForFund(row.fund);

@@ -12,6 +12,11 @@ export type HistoryPoint = { date: Date; closeValue: number };
 export type BenchmarkDataBasis = "index" | "proxy_etf";
 const SPCLLHCP_PROXY_SOURCE = "proxy_etf_515450";
 const SPCLLHCP_PROXY_LABEL = "515450 ETF 代理";
+const DAY_MS = 24 * 60 * 60 * 1000;
+const BENCHMARK_HISTORY_OVERLAP_DAYS = 31;
+const BENCHMARK_VALUATION_TTL_MS = DAY_MS;
+const BENCHMARK_CONSTITUENT_TTL_MS = 7 * DAY_MS;
+const BENCHMARK_SYNC_CONCURRENCY = 2;
 
 export function benchmarkDataBasis(source: string | null | undefined): { dataBasis: BenchmarkDataBasis; dataBasisLabel: string | null } {
   return source === SPCLLHCP_PROXY_SOURCE
@@ -71,6 +76,30 @@ function normalizeSourceSymbol(value: unknown) {
 
 function utcDay(date: Date) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+function historicalWindowStart(latestDate: Date) {
+  const start = utcDay(latestDate);
+  start.setUTCDate(start.getUTCDate() - BENCHMARK_HISTORY_OVERLAP_DAYS);
+  return start;
+}
+
+function requiresRefresh(lastSyncAt: Date | null, lastSyncError: string | null, ttlMs: number, force: boolean) {
+  return force || Boolean(lastSyncError) || !lastSyncAt || lastSyncAt.getTime() + ttlMs <= Date.now();
+}
+
+async function mapWithConcurrency<Input, Output>(items: Input[], concurrency: number, mapper: (item: Input) => Promise<Output>) {
+  const results = new Array<Output>(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index]!);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
+  return results;
 }
 
 function ensureProvider(value: string) {
@@ -458,14 +487,14 @@ export async function searchPublicBenchmarks(query: string, fetchImpl: typeof fe
   }).slice(0, 20);
 }
 
-async function fetchEastmoneyHistory(sourceSymbol: string, fetchImpl: typeof fetch) {
+async function fetchEastmoneyHistory(sourceSymbol: string, fetchImpl: typeof fetch, startDate?: Date) {
   const url = new URL("https://push2his.eastmoney.com/api/qt/stock/kline/get");
   url.searchParams.set("secid", sourceSymbol);
   url.searchParams.set("fields1", "f1,f2,f3,f4,f5,f6");
   url.searchParams.set("fields2", "f51,f52,f53");
   url.searchParams.set("klt", "101");
   url.searchParams.set("fqt", "1");
-  url.searchParams.set("beg", "19900101");
+  url.searchParams.set("beg", (startDate ?? new Date("1990-01-01T00:00:00Z")).toISOString().slice(0, 10).replaceAll("-", ""));
   url.searchParams.set("end", "20991231");
   const response = await fetchImpl(url, { cache: "no-store", signal: AbortSignal.timeout(12_000) });
   if (!response.ok) throw new ApiError(`指数同步失败（${response.status}）。`, 502);
@@ -505,14 +534,14 @@ async function fetchSinaEtfHistory(code: string, fetchImpl: typeof fetch) {
   return points;
 }
 
-async function fetchChinaHistory(instrument: Pick<BenchmarkInstrument, "code" | "market">, fetchImpl: typeof fetch) {
-  return fetchEastmoneyHistory(chinaSecId(instrument.code, instrument.market), fetchImpl);
+async function fetchChinaHistory(instrument: Pick<BenchmarkInstrument, "code" | "market">, fetchImpl: typeof fetch, startDate?: Date) {
+  return fetchEastmoneyHistory(chinaSecId(instrument.code, instrument.market), fetchImpl, startDate);
 }
 
-async function fetchCnindexHistory(instrument: Pick<BenchmarkInstrument, "code">, fetchImpl: typeof fetch) {
+async function fetchCnindexHistory(instrument: Pick<BenchmarkInstrument, "code">, fetchImpl: typeof fetch, startDate?: Date) {
   const url = new URL("https://www.cnindex.com.cn/market/market/getIndexDailyDataWithDataFormat");
   url.searchParams.set("indexCode", instrument.code);
-  url.searchParams.set("startDate", "1990-01-01");
+  url.searchParams.set("startDate", (startDate ?? new Date("1990-01-01T00:00:00Z")).toISOString().slice(0, 10));
   url.searchParams.set("endDate", new Date().toISOString().slice(0, 10));
   url.searchParams.set("frequency", "day");
   const response = await fetchImpl(url, {
@@ -542,17 +571,18 @@ function readableProviderError(error: unknown) {
 async function fetchCnindexWithEastmoneyFallback(
   instrument: Pick<BenchmarkInstrument, "code" | "market" | "sourceSymbol">,
   fetchImpl: typeof fetch,
+  startDate?: Date,
 ) {
   let cnindexError: unknown;
   try {
-    return await fetchCnindexHistory(instrument, fetchImpl);
+    return await fetchCnindexHistory(instrument, fetchImpl, startDate);
   } catch (error) {
     cnindexError = error;
   }
   try {
     return instrument.sourceSymbol
-      ? await fetchEastmoneyHistory(instrument.sourceSymbol, fetchImpl)
-      : await fetchChinaHistory(instrument, fetchImpl);
+      ? await fetchEastmoneyHistory(instrument.sourceSymbol, fetchImpl, startDate)
+      : await fetchChinaHistory(instrument, fetchImpl, startDate);
   } catch (eastmoneyError) {
     throw new ApiError(
       `国证指数同步失败（${readableProviderError(cnindexError)}）；东方财富备用同步失败（${readableProviderError(eastmoneyError)}）。`,
@@ -561,10 +591,10 @@ async function fetchCnindexWithEastmoneyFallback(
   }
 }
 
-async function fetchCsindexHistory(instrument: Pick<BenchmarkInstrument, "code">, fetchImpl: typeof fetch) {
+async function fetchCsindexHistory(instrument: Pick<BenchmarkInstrument, "code">, fetchImpl: typeof fetch, startDate?: Date) {
   const url = new URL("https://www.csindex.com.cn/csindex-home/perf/index-perf");
   url.searchParams.set("indexCode", instrument.code);
-  url.searchParams.set("startDate", "19900101");
+  url.searchParams.set("startDate", (startDate ?? new Date("1990-01-01T00:00:00Z")).toISOString().slice(0, 10).replaceAll("-", ""));
   url.searchParams.set("endDate", new Date().toISOString().slice(0, 10).replaceAll("-", ""));
   const response = await fetchImpl(url, { cache: "no-store", signal: AbortSignal.timeout(12_000), headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0" } });
   if (!response.ok) throw new Error("中证指数官方接口不可用。");
@@ -580,8 +610,15 @@ async function fetchCsindexHistory(instrument: Pick<BenchmarkInstrument, "code">
   return points;
 }
 
-async function fetchYahooHistory(symbol: string, fetchImpl: typeof fetch) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=100y`;
+async function fetchYahooHistory(symbol: string, fetchImpl: typeof fetch, startDate?: Date) {
+  const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`);
+  url.searchParams.set("interval", "1d");
+  if (startDate) {
+    url.searchParams.set("period1", String(Math.floor(startDate.getTime() / 1000)));
+    url.searchParams.set("period2", String(Math.floor(Date.now() / 1000)));
+  } else {
+    url.searchParams.set("range", "100y");
+  }
   const response = await fetchImpl(url, { cache: "no-store", signal: AbortSignal.timeout(12_000), headers: { "User-Agent": "Mozilla/5.0" } });
   if (!response.ok) throw new ApiError(`指数同步失败（${response.status}）。`, 502);
   const payload = await response.json() as { chart?: { result?: Array<{ timestamp?: number[]; indicators?: { quote?: Array<{ close?: Array<number | null> }> } }> } };
@@ -593,7 +630,7 @@ async function fetchYahooHistory(symbol: string, fetchImpl: typeof fetch) {
   });
 }
 
-async function fetchGlobalHistory(instrument: Pick<BenchmarkInstrument, "code">, fetchImpl: typeof fetch) {
+async function fetchGlobalHistory(instrument: Pick<BenchmarkInstrument, "code">, fetchImpl: typeof fetch, startDate?: Date) {
   const aliases: Record<string, string> = {
     SPX: "^GSPC",
     NDX: "^NDX",
@@ -603,56 +640,57 @@ async function fetchGlobalHistory(instrument: Pick<BenchmarkInstrument, "code">,
     N225: "^N225",
     FTSE: "^FTSE",
   };
-  return fetchYahooHistory(aliases[instrument.code] ?? instrument.code, fetchImpl);
+  return fetchYahooHistory(aliases[instrument.code] ?? instrument.code, fetchImpl, startDate);
 }
 
-async function fetchExactHistory(instrument: BenchmarkInstrument, fetchImpl: typeof fetch) {
+async function fetchExactHistory(instrument: BenchmarkInstrument, fetchImpl: typeof fetch, startDate?: Date) {
   if (instrument.provider === "manual") throw new ApiError("手动指数不支持自动同步。", 400);
   const market = instrument.market.toUpperCase();
   let points: HistoryPoint[];
   if (["CN", "SH", "SZ"].includes(market)) {
     const usesCnindex = market === "SZ" || instrument.code.startsWith("399") || instrument.sourceSymbol?.startsWith("0.");
     if (usesCnindex) {
-      points = await fetchCnindexWithEastmoneyFallback(instrument, fetchImpl);
+      points = await fetchCnindexWithEastmoneyFallback(instrument, fetchImpl, startDate);
     } else {
       try {
-        points = await fetchCsindexHistory(instrument, fetchImpl);
+        points = await fetchCsindexHistory(instrument, fetchImpl, startDate);
       } catch {
         points = instrument.sourceSymbol
-          ? await fetchEastmoneyHistory(instrument.sourceSymbol, fetchImpl)
-          : await fetchChinaHistory(instrument, fetchImpl);
+          ? await fetchEastmoneyHistory(instrument.sourceSymbol, fetchImpl, startDate)
+          : await fetchChinaHistory(instrument, fetchImpl, startDate);
       }
     }
   } else if (instrument.sourceSymbol && /^\d+\./.test(instrument.sourceSymbol)) {
     try {
-      points = await fetchEastmoneyHistory(instrument.sourceSymbol, fetchImpl);
+      points = await fetchEastmoneyHistory(instrument.sourceSymbol, fetchImpl, startDate);
     } catch {
-      points = await fetchGlobalHistory(instrument, fetchImpl);
+      points = await fetchGlobalHistory(instrument, fetchImpl, startDate);
     }
   } else if (instrument.sourceSymbol) {
-    points = await fetchYahooHistory(instrument.sourceSymbol, fetchImpl);
+    points = await fetchYahooHistory(instrument.sourceSymbol, fetchImpl, startDate);
   } else {
-    points = await fetchGlobalHistory(instrument, fetchImpl);
+    points = await fetchGlobalHistory(instrument, fetchImpl, startDate);
   }
   return points;
 }
 
-async function fetchHistory(instrument: BenchmarkInstrument, fetchImpl: typeof fetch) {
+async function fetchHistory(instrument: BenchmarkInstrument, fetchImpl: typeof fetch, startDate?: Date) {
   try {
-    const exactPoints = sanitizeBenchmarkHistoryPoints(await fetchExactHistory(instrument, fetchImpl));
-    if (exactPoints.length >= 2) return { points: exactPoints, source: "public_market" };
+    const exactPoints = sanitizeBenchmarkHistoryPoints(await fetchExactHistory(instrument, fetchImpl, startDate))
+      .filter((point) => !startDate || point.date >= startDate);
+    if (exactPoints.length >= (startDate ? 1 : 2)) return { points: exactPoints, source: "public_market" };
     if (instrument.code !== "SPCLLHCP") throw new ApiError("公开数据源未返回足够的可靠指数历史（至少需要 2 个有效日期）。", 502);
   } catch (error) {
     if (instrument.code !== "SPCLLHCP") throw error;
   }
   let proxyPoints: HistoryPoint[];
   try {
-    proxyPoints = await fetchEastmoneyHistory("1.515450", fetchImpl);
+    proxyPoints = await fetchEastmoneyHistory("1.515450", fetchImpl, startDate);
   } catch {
     proxyPoints = await fetchSinaEtfHistory("515450", fetchImpl);
   }
-  proxyPoints = sanitizeBenchmarkHistoryPoints(proxyPoints);
-  if (proxyPoints.length < 2) throw new ApiError("精确指数与 515450 ETF 代理均未返回足够历史。", 502);
+  proxyPoints = sanitizeBenchmarkHistoryPoints(proxyPoints).filter((point) => !startDate || point.date >= startDate);
+  if (proxyPoints.length < (startDate ? 1 : 2)) throw new ApiError("精确指数与 515450 ETF 代理均未返回足够历史。", 502);
   return { points: proxyPoints, source: SPCLLHCP_PROXY_SOURCE };
 }
 
@@ -662,19 +700,43 @@ export function benchmarkSeriesMetadata(benchmark: Pick<BenchmarkInstrument, "co
   return { seriesType: inferredTotalReturn ? "total_return" : benchmark.seriesType, parentIndexCode };
 }
 
-export async function syncBenchmarkHistory(userId: string, benchmarkId: string, fetchImpl: typeof fetch = fetch) {
+export async function syncBenchmarkHistory(
+  userId: string,
+  benchmarkId: string,
+  fetchImpl: typeof fetch = fetch,
+  options: { force?: boolean } = {},
+) {
   const benchmark = await ownedBenchmark(userId, benchmarkId);
+  const force = options.force === true;
+  const latestPrice = force ? null : await prisma.benchmarkPriceSnapshot.findFirst({
+    where: { benchmarkInstrumentId: benchmark.id },
+    orderBy: { date: "desc" },
+    select: { date: true },
+  });
+  const historyStart = latestPrice ? historicalWindowStart(latestPrice.date) : undefined;
   try {
-    const { points, source } = await fetchHistory(benchmark, fetchImpl);
-    const valuationResult = await fetchCsindexBenchmarkValuations(benchmark, fetchImpl);
+    const { points, source } = await fetchHistory(benchmark, fetchImpl, historyStart);
+    const refreshValuations = requiresRefresh(
+      benchmark.valuationLastSyncAt,
+      benchmark.valuationLastSyncError,
+      BENCHMARK_VALUATION_TTL_MS,
+      force,
+    );
+    const valuationResult = refreshValuations ? await fetchCsindexBenchmarkValuations(benchmark, fetchImpl) : null;
     const seriesMetadata = benchmarkSeriesMetadata(benchmark);
     const supportsCsindexConstituents = ["CN", "SH"].includes(benchmark.market.toUpperCase()) && !benchmark.code.startsWith("399");
-    const constituentResult = supportsCsindexConstituents
+    const refreshConstituents = supportsCsindexConstituents && requiresRefresh(
+      benchmark.constituentLastSyncAt,
+      benchmark.constituentLastSyncError,
+      BENCHMARK_CONSTITUENT_TTL_MS,
+      force,
+    );
+    const constituentResult = refreshConstituents
       ? await fetchCsindexTopConstituents(seriesMetadata.parentIndexCode ?? benchmark.code, fetchImpl)
           .then((snapshot) => ({ snapshot, error: null as string | null }))
           .catch((error: unknown) => ({ snapshot: null, error: readableProviderError(error) }))
-      : { snapshot: null, error: null as string | null };
-    const existingValuations = valuationResult.supported ? await prisma.benchmarkValuationSnapshot.findMany({
+      : null;
+    const existingValuations = valuationResult?.supported ? await prisma.benchmarkValuationSnapshot.findMany({
       where: { benchmarkInstrumentId: benchmark.id },
       orderBy: { date: "asc" },
     }) : [];
@@ -692,7 +754,7 @@ export async function syncBenchmarkHistory(userId: string, benchmarkId: string, 
       dividendYieldSource: point.dividendYieldSource,
       dividendYieldSourceUrl: point.dividendYieldSourceUrl,
     }]));
-    for (const point of valuationResult.points) {
+    for (const point of valuationResult?.points ?? []) {
       const existing = valuationsByDate.get(point.date);
       valuationsByDate.set(point.date, {
         date: point.date,
@@ -711,9 +773,13 @@ export async function syncBenchmarkHistory(userId: string, benchmarkId: string, 
     }
     const valuations = Array.from(valuationsByDate.values());
     return await prisma.$transaction(async (tx) => {
-      await tx.benchmarkPriceSnapshot.deleteMany({ where: { benchmarkInstrumentId: benchmark.id } });
+      await tx.benchmarkPriceSnapshot.deleteMany({
+        where: historyStart
+          ? { benchmarkInstrumentId: benchmark.id, date: { gte: historyStart } }
+          : { benchmarkInstrumentId: benchmark.id },
+      });
       await tx.benchmarkPriceSnapshot.createMany({ data: points.map((point) => ({ benchmarkInstrumentId: benchmark.id, date: utcDay(point.date), closeValue: point.closeValue, source })) });
-      if (valuationResult.supported && valuations.length) {
+      if (valuationResult?.supported && valuations.length) {
         await tx.benchmarkValuationSnapshot.deleteMany({ where: { benchmarkInstrumentId: benchmark.id } });
         await tx.benchmarkValuationSnapshot.createMany({ data: valuations.map((point) => ({
           benchmarkInstrumentId: benchmark.id,
@@ -731,7 +797,7 @@ export async function syncBenchmarkHistory(userId: string, benchmarkId: string, 
           dividendYieldSourceUrl: point.dividendYieldSourceUrl,
         })) });
       }
-      if (constituentResult.snapshot) {
+      if (constituentResult?.snapshot) {
         const snapshot = constituentResult.snapshot;
         const stored = await tx.benchmarkConstituentSnapshot.upsert({
           where: { benchmarkInstrumentId_effectiveDate: { benchmarkInstrumentId: benchmark.id, effectiveDate: utcDay(new Date(`${snapshot.effectiveDate}T00:00:00Z`)) } },
@@ -745,13 +811,13 @@ export async function syncBenchmarkHistory(userId: string, benchmarkId: string, 
         status: "active",
         lastSyncAt: new Date(),
         lastSyncError: null,
-        valuationLastSyncAt: valuationResult.supported ? new Date() : undefined,
-        valuationLastSyncError: valuationResult.supported ? valuationResult.error : undefined,
-        constituentLastSyncAt: constituentResult.snapshot ? new Date() : undefined,
-        constituentLastSyncError: supportsCsindexConstituents ? constituentResult.error : undefined,
+        valuationLastSyncAt: valuationResult?.supported ? new Date() : undefined,
+        valuationLastSyncError: valuationResult?.supported ? valuationResult.error : undefined,
+        constituentLastSyncAt: constituentResult?.snapshot ? new Date() : undefined,
+        constituentLastSyncError: refreshConstituents ? constituentResult?.error : undefined,
         ...seriesMetadata,
       } });
-      await createAuditLog(tx, { userId, entityType: "benchmark_instrument", entityId: benchmark.id, action: "sync", source: "web", afterJson: { rows: points.length, valuationRows: valuations.length, valuationError: valuationResult.error, constituentRows: constituentResult.snapshot?.constituents.length ?? 0, constituentError: constituentResult.error } });
+      await createAuditLog(tx, { userId, entityType: "benchmark_instrument", entityId: benchmark.id, action: "sync", source: "web", afterJson: { rows: points.length, incrementalFrom: historyStart?.toISOString().slice(0, 10) ?? null, valuationRows: valuations.length, valuationError: valuationResult?.error ?? null, constituentRows: constituentResult?.snapshot?.constituents.length ?? 0, constituentError: constituentResult?.error ?? null } });
       return updated;
     });
   } catch (error) {
@@ -761,22 +827,20 @@ export async function syncBenchmarkHistory(userId: string, benchmarkId: string, 
   }
 }
 
-export async function syncAllBenchmarks(userId: string, fetchImpl: typeof fetch = fetch) {
+export async function syncAllBenchmarks(userId: string, fetchImpl: typeof fetch = fetch, options: { force?: boolean } = {}) {
   const benchmarks = await prisma.benchmarkInstrument.findMany({ where: { userId }, orderBy: { displayOrder: "asc" } });
-  const results: Array<{ benchmarkId: string; status: "completed" | "skipped" | "failed"; error: string | null }> = [];
-  for (const benchmark of benchmarks) {
+  const results = await mapWithConcurrency(benchmarks, BENCHMARK_SYNC_CONCURRENCY, async (benchmark) => {
     if (benchmark.provider === "manual") {
-      results.push({ benchmarkId: benchmark.id, status: "skipped", error: null });
-      continue;
+      return { benchmarkId: benchmark.id, status: "skipped" as const, error: null };
     }
     try {
-      await syncBenchmarkHistory(userId, benchmark.id, fetchImpl);
-      results.push({ benchmarkId: benchmark.id, status: "completed", error: null });
+      await syncBenchmarkHistory(userId, benchmark.id, fetchImpl, options);
+      return { benchmarkId: benchmark.id, status: "completed" as const, error: null };
     } catch (error) {
       const message = error instanceof Error ? error.message : "指数同步失败。";
-      results.push({ benchmarkId: benchmark.id, status: "failed", error: message });
+      return { benchmarkId: benchmark.id, status: "failed" as const, error: message };
     }
-  }
+  });
   return { total: results.length, completed: results.filter((item) => item.status === "completed").length, skipped: results.filter((item) => item.status === "skipped").length, failed: results.filter((item) => item.status === "failed").length, results };
 }
 
