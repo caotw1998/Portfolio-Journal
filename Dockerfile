@@ -47,3 +47,7 @@ COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
 USER nextjs
 EXPOSE 3000
 CMD ["node", "server.js"]
+
+FROM runner AS worker
+COPY --from=builder --chown=nextjs:nextjs /app/script/sync-worker.mjs ./script/sync-worker.mjs
+CMD ["node", "script/sync-worker.mjs"]

@@ -19,6 +19,8 @@ describe("private deployment artifacts", () => {
     expect(compose).toContain("no-new-privileges:true");
     expect(compose).toContain("read_only: true");
     expect(compose).toContain("cap_drop:");
+    expect(compose).toContain("worker:");
+    expect(compose).toContain("SYNC_WORKER_TOKEN: ${SYNC_WORKER_TOKEN}");
   });
 
   test("uses a non-root standalone runtime image", () => {
@@ -37,6 +39,7 @@ describe("private deployment artifacts", () => {
 
   test("provides repeatable runtime security and persistence verification", () => {
     expect(verifier).toContain("NETWORK_BINDING_OK");
+    expect(verifier).toContain("require_service worker");
     expect(verifier).toContain("CONTAINER_HARDENING_OK");
     expect(verifier).toContain("TAILSCALE_PRIVATE_ACCESS_OK");
     expect(verifier).toContain("VERIFY_RESTART");

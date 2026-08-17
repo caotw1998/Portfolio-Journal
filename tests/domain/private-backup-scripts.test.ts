@@ -84,8 +84,9 @@ describe("Docker PostgreSQL operations", () => {
 set -euo pipefail
 case "$*" in
   "compose config --quiet") ;;
-  "compose ps --status running --services") printf 'db\\napp\\n' ;;
+  "compose ps --status running --services") printf 'db\\napp\\nworker\\n' ;;
   "compose ps -q db") printf 'db-container-id\\n' ;;
+  "compose ps -q worker") printf 'worker-container-id\\n' ;;
   "compose port app 3000") printf '127.0.0.1:3000\\n' ;;
   *HostConfig.PortBindings*) printf '{}\\n' ;;
   "compose exec -T app id -u") printf '10001\\n' ;;

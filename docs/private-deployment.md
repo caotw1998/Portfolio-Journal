@@ -27,6 +27,7 @@ openssl rand -hex 32
 将最后一条命令的输出填入 `.env.deploy` 的 `POSTGRES_PASSWORD`，然后设置：
 
 - `WORKSPACE_EMAIL`：新数据库的工作区标识。
+- `SYNC_WORKER_TOKEN`：用 `openssl rand -hex 32` 生成的独立随机令牌，供内部同步 worker 使用，不得复用数据库密码。
 - `TAILSCALE_ALLOWED_LOGIN`：您登录 Tailscale 的精确邮箱。
 - `BACKUP_ROOT`：仓库外的绝对目录。
 

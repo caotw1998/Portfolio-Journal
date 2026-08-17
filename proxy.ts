@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { evaluatePrivateAccess, SECURITY_HEADERS } from "@/lib/deployment/private-access";
 
 export function proxy(request: NextRequest) {
+  if (request.nextUrl.pathname === "/api/internal/sync-jobs/run") {
+    return NextResponse.next();
+  }
   const decision = evaluatePrivateAccess({
     method: request.method,
     pathname: request.nextUrl.pathname,

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   compareFollowedAtDescending,
   isFundInResearchCategory,
@@ -22,10 +22,24 @@ type FundSyncSummary = {
   completedSections: number;
   failedSections: number;
 };
-type BenchmarkSyncSummary = {
+type SyncJobSummary = {
+  total: number;
   completed: number;
   skipped: number;
   failed: number;
+  running: number;
+  queued: number;
+  settled: number;
+  percentage: number;
+  funds: { total: number; completed: number; skipped: number; failed: number; running: number; queued: number };
+  benchmarks: { total: number; completed: number; skipped: number; failed: number; running: number; queued: number };
+};
+type SyncJob = {
+  id: string;
+  status: string;
+  summary: SyncJobSummary;
+  current: { kind: string; name: string | null; startedAt: string | null } | null;
+  failures: Array<{ kind: string; name: string; error: string | null }>;
 };
 type FundListItem = {
   id: string;
@@ -80,6 +94,8 @@ export function ResearchLibrary({
   const [results, setResults] = useState<SearchResult[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [globalSyncMessage, setGlobalSyncMessage] = useState<string | null>(null);
+  const [syncJob, setSyncJob] = useState<SyncJob | null>(null);
+  const [activeSyncJobId, setActiveSyncJobId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [isGlobalSyncing, setIsGlobalSyncing] = useState(false);
   const [activeCategoryId, setActiveCategoryId] = useState("all");
@@ -98,6 +114,41 @@ export function ResearchLibrary({
     Record<string, string[]>
   >({});
   const [expandedFundIds, setExpandedFundIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (!activeSyncJobId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/sync-jobs/${activeSyncJobId}`);
+        const body = (await response.json()) as { data?: SyncJob; error?: string };
+        if (!response.ok || !body.data) throw new Error(body.error ?? "读取同步进度失败。");
+        if (cancelled) return;
+        setSyncJob(body.data);
+        if (["completed", "partial", "failed"].includes(body.data.status)) {
+          await refreshFunds();
+          if (cancelled) return;
+          const { summary } = body.data;
+          setGlobalSyncMessage(`${body.data.status === "completed" ? "所有数据同步完成" : body.data.status === "partial" ? "所有数据同步部分完成" : "所有数据同步失败"}：完成 ${summary.completed}、跳过 ${summary.skipped}、失败 ${summary.failed}。`);
+          setIsGlobalSyncing(false);
+          setActiveSyncJobId(null);
+          return;
+        }
+        timer = setTimeout(poll, 1_000);
+      } catch (error) {
+        if (cancelled) return;
+        setGlobalSyncMessage(error instanceof Error ? error.message : "读取同步进度失败。");
+        setIsGlobalSyncing(false);
+        setActiveSyncJobId(null);
+      }
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [activeSyncJobId]);
 
   const categoryNames = useMemo(
     () => new Map(categoryList.map((category) => [category.id, category.name])),
@@ -241,42 +292,22 @@ export function ResearchLibrary({
     };
   }
 
-  async function syncAllBenchmarkData(): Promise<BenchmarkSyncSummary> {
-    const response = await fetch("/api/benchmarks/sync", { method: "POST" });
-    const body = (await response.json()) as {
-      data?: BenchmarkSyncSummary;
-      error?: string;
-    };
-    if (!response.ok || !body.data) {
-      throw new Error(body.error ?? "同步全部指数失败。");
-    }
-    return body.data;
-  }
-
   function syncAllData() {
-    setGlobalSyncMessage("正在增量同步全部基金与指数数据……");
+    setGlobalSyncMessage(null);
     setIsGlobalSyncing(true);
     startTransition(async () => {
       try {
-        const [fundResult, benchmarkResult] = await Promise.allSettled([
-          syncAllFundData(),
-          syncAllBenchmarkData(),
-        ]);
-        const fundSummary = fundResult.status === "fulfilled"
-          ? `基金 ${fundResult.value.fundCount} 只（分区成功 ${fundResult.value.completedSections}、失败 ${fundResult.value.failedSections}）`
-          : `基金失败：${fundResult.reason instanceof Error ? fundResult.reason.message : "未知错误"}`;
-        const benchmarkSummary = benchmarkResult.status === "fulfilled"
-          ? `指数成功 ${benchmarkResult.value.completed}、跳过 ${benchmarkResult.value.skipped}、失败 ${benchmarkResult.value.failed}`
-          : `指数失败：${benchmarkResult.reason instanceof Error ? benchmarkResult.reason.message : "未知错误"}`;
-        const bothFailed = fundResult.status === "rejected" && benchmarkResult.status === "rejected";
-        const partiallyFailed = fundResult.status === "rejected"
-          || benchmarkResult.status === "rejected"
-          || fundResult.value.failedSections > 0
-          || benchmarkResult.value.failed > 0;
-        setGlobalSyncMessage(`${bothFailed ? "所有数据同步失败" : partiallyFailed ? "所有数据同步部分完成" : "所有数据同步完成"}：${fundSummary}；${benchmarkSummary}。`);
+        const response = await fetch("/api/sync-jobs", { method: "POST" });
+        const body = (await response.json()) as { data?: { job?: SyncJob }; error?: string };
+        if (!response.ok || !body.data?.job) throw new Error(body.error ?? "创建同步任务失败。");
+        setSyncJob(body.data.job);
+        if (["completed", "partial", "failed"].includes(body.data.job.status)) {
+          setIsGlobalSyncing(false);
+          return;
+        }
+        setActiveSyncJobId(body.data.job.id);
       } catch (error) {
         setGlobalSyncMessage(error instanceof Error ? error.message : "同步所有数据失败。");
-      } finally {
         setIsGlobalSyncing(false);
       }
     });
@@ -540,7 +571,30 @@ export function ResearchLibrary({
             </button>
           </div>
         </div>
-        {globalSyncMessage ? <p aria-live="polite" className="border-b border-border px-5 py-3 text-sm leading-6 text-muted-foreground">{globalSyncMessage}</p> : null}
+        {syncJob ? (
+          <div className="border-b border-border px-5 py-3" aria-live="polite">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm leading-6">
+              <p className="font-medium">{syncJob.status === "completed" ? "同步完成" : syncJob.status === "partial" ? "同步部分完成" : syncJob.status === "failed" ? "同步失败" : "正在增量同步全部基金与指数数据"}</p>
+              <p className="tabular-nums text-muted-foreground">{syncJob.summary.settled} / {syncJob.summary.total} · {syncJob.summary.percentage}%</p>
+            </div>
+            <div
+              role="progressbar"
+              aria-label="全部基金与指数同步进度"
+              aria-valuemin={0}
+              aria-valuemax={syncJob.summary.total}
+              aria-valuenow={syncJob.summary.settled}
+              aria-valuetext={`完成 ${syncJob.summary.settled} / ${syncJob.summary.total}，${syncJob.summary.percentage}%`}
+              className="mt-2 h-2 overflow-hidden bg-muted"
+            >
+              <div className="h-full bg-accent transition-[width] duration-300" style={{ width: `${syncJob.summary.percentage}%` }} />
+            </div>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              基金：完成 {syncJob.summary.funds.completed}、跳过 {syncJob.summary.funds.skipped}、失败 {syncJob.summary.funds.failed} / {syncJob.summary.funds.total}；指数：完成 {syncJob.summary.benchmarks.completed}、跳过 {syncJob.summary.benchmarks.skipped}、失败 {syncJob.summary.benchmarks.failed} / {syncJob.summary.benchmarks.total}。
+              {syncJob.current?.name ? ` 当前：${syncJob.current.name}` : ""}
+            </p>
+            {syncJob.failures.length ? <p className="mt-1 text-xs leading-5 text-destructive">失败：{syncJob.failures.slice(0, 3).map((item) => `${item.name}（${item.error ?? "未知错误"}）`).join("；")}{syncJob.failures.length > 3 ? "……" : ""}</p> : null}
+          </div>
+        ) : globalSyncMessage ? <p aria-live="polite" className="border-b border-border px-5 py-3 text-sm leading-6 text-muted-foreground">{globalSyncMessage}</p> : null}
 
         <nav
           aria-label="研究库分类"

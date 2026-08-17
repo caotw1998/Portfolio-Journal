@@ -20,6 +20,7 @@ model User {
   benchmarkInstruments          BenchmarkInstrument[]
   auditLogs                     AuditLog[]
   syncRuns                      FundSyncRun[]
+  syncJobs                      SyncJob[]
   modelPortfolios               ModelPortfolio[]
   researchCategories            ResearchCategory[]
   researchCategoriesInitialized Boolean               @default(false)
@@ -86,6 +87,7 @@ model Fund {
   dividendEvents   FundDividendEvent[]
   documents        FundDocument[]
   syncRunItems     FundSyncRunItem[]
+  syncJobItems     SyncJobItem[]
   modelAllocations ModelPortfolioAllocation[]
   sourceSnapshots  FundSourceSnapshot[]
   etfPcfSnapshots  EtfPcfSnapshot[]
@@ -463,6 +465,49 @@ model FundSyncRunItem {
   @@index([status, createdAt])
 }
 
+model SyncJob {
+  id          String    @id @default(cuid())
+  userId      String
+  scope       String
+  force       Boolean   @default(false)
+  status      String    @default("queued")
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items SyncJobItem[]
+
+  @@index([userId, status, createdAt])
+  @@index([status, createdAt])
+}
+
+model SyncJobItem {
+  id                    String    @id @default(cuid())
+  syncJobId             String
+  resourceKey           String
+  kind                  String
+  fundId                String?
+  benchmarkInstrumentId String?
+  status                String    @default("queued")
+  attemptCount          Int       @default(0)
+  error                 String?
+  startedAt             DateTime?
+  completedAt           DateTime?
+  leaseExpiresAt        DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  syncJob             SyncJob              @relation(fields: [syncJobId], references: [id], onDelete: Cascade)
+  fund                Fund?                @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  benchmarkInstrument BenchmarkInstrument? @relation(fields: [benchmarkInstrumentId], references: [id], onDelete: Cascade)
+
+  @@unique([syncJobId, resourceKey])
+  @@index([syncJobId, status, kind])
+  @@index([status, leaseExpiresAt])
+}
+
 model ModelPortfolio {
   id                 String   @id @default(cuid())
   userId             String
@@ -523,6 +568,7 @@ model BenchmarkInstrument {
   priceSnapshots       BenchmarkPriceSnapshot[]
   valuationSnapshots   BenchmarkValuationSnapshot[]
   constituentSnapshots BenchmarkConstituentSnapshot[]
+  syncJobItems         SyncJobItem[]
 
   @@unique([userId, code, market])
   @@index([userId, status, displayOrder, createdAt])

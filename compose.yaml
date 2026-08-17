@@ -34,6 +34,7 @@ services:
       WORKSPACE_EMAIL: ${WORKSPACE_EMAIL}
       TAILSCALE_ALLOWED_LOGIN: ${TAILSCALE_ALLOWED_LOGIN}
       APP_ORIGIN: ${APP_ORIGIN}
+      SYNC_WORKER_TOKEN: ${SYNC_WORKER_TOKEN}
       APP_PORT: ${APP_PORT:-3000}
       BACKUP_ROOT: ${BACKUP_ROOT}
     depends_on:
@@ -58,6 +59,7 @@ services:
       PRIVATE_ACCESS_MODE: tailscale
       TAILSCALE_ALLOWED_LOGIN: ${TAILSCALE_ALLOWED_LOGIN}
       APP_ORIGIN: ${APP_ORIGIN}
+      SYNC_WORKER_TOKEN: ${SYNC_WORKER_TOKEN}
     ports:
       - 127.0.0.1:${APP_PORT:-3000}:3000
     depends_on:
@@ -79,6 +81,28 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    networks:
+      - private
+
+  worker:
+    build:
+      context: .
+      target: worker
+    restart: unless-stopped
+    init: true
+    environment:
+      SYNC_WORKER_TOKEN: ${SYNC_WORKER_TOKEN}
+      SYNC_WORKER_ENDPOINT: http://app:3000/api/internal/sync-jobs/run
+    depends_on:
+      app:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     networks:
       - private
 

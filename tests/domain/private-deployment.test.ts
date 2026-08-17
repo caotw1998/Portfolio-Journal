@@ -17,6 +17,7 @@ const validEnvironment = {
   POSTGRES_DB: "portfolio_journal",
   POSTGRES_USER: "portfolio",
   POSTGRES_PASSWORD: "0123456789abcdef0123456789abcdef",
+  SYNC_WORKER_TOKEN: "abcdef0123456789abcdef0123456789",
   WORKSPACE_EMAIL: "owner@example.com",
   TAILSCALE_ALLOWED_LOGIN: "owner@example.com",
   APP_ORIGIN: "https://portfolio.example-tailnet.ts.net",
@@ -55,6 +56,7 @@ describe("private deployment configuration", () => {
     expect(generated).toContain("POSTGRES_DB=portfolio_journal\n");
     expect(generated).toContain("TAILSCALE_ALLOWED_LOGIN=owner@example.com\n");
     expect(generated).toMatch(/POSTGRES_PASSWORD=[a-f0-9]{64}\n/);
+    expect(generated).toMatch(/SYNC_WORKER_TOKEN=[a-f0-9]{64}\n/);
     expect(generated).not.toContain("replace_with");
   });
 });

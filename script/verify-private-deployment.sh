@@ -55,6 +55,7 @@ cd "$REPO_ROOT"
 docker compose config --quiet
 require_service db
 require_service app
+require_service worker
 
 app_binding="$(docker compose port app 3000)"
 if [[ ! "$app_binding" =~ ^127\.0\.0\.1:([0-9]+)$ ]]; then
@@ -68,7 +69,13 @@ if [[ "$database_bindings" != "{}" && "$database_bindings" != "null" ]]; then
   printf 'PostgreSQL must not publish a host port; received bindings: %s\n' "$database_bindings" >&2
   exit 1
 fi
-printf 'NETWORK_BINDING_OK app=%s database=internal-only\n' "$app_binding"
+worker_container_id="$(docker compose ps -q worker)"
+worker_bindings="$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$worker_container_id")"
+if [[ "$worker_bindings" != "{}" && "$worker_bindings" != "null" ]]; then
+  printf 'Sync worker must not publish a host port; received bindings: %s\n' "$worker_bindings" >&2
+  exit 1
+fi
+printf 'NETWORK_BINDING_OK app=%s database=internal-only worker=internal-only\n' "$app_binding"
 
 container_user="$(docker compose exec -T app id -u)"
 if [[ "$container_user" == "0" ]]; then

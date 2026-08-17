@@ -112,29 +112,33 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await expect(page.getByText("这个分类还没有基金")).toBeVisible();
   await page.getByRole("button", { name: /^全部 1$/ }).click();
   await expect(page.getByRole("button", { name: "增量刷新全部基金" })).toBeEnabled();
-  let fundSyncRequests = 0;
-  let benchmarkSyncRequests = 0;
-  await page.route("**/api/funds/sync", async (route) => {
-    fundSyncRequests += 1;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { runId: "e2e-global-sync", results: [{}] } }) });
-  });
-  await page.route("**/api/funds/sync/e2e-global-sync", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { status: "partial", items: [{ status: "completed" }, { status: "failed" }] } }) }));
-  await page.route("**/api/benchmarks/sync", async (route) => {
-    benchmarkSyncRequests += 1;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { total: 1, completed: 1, skipped: 0, failed: 0, results: [] } }) });
+  let syncJobRequests = 0;
+  await page.route("**/api/sync-jobs", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { reused: false, job: {
+    id: "e2e-global-sync", status: "queued", current: null, failures: [],
+    summary: { total: 2, completed: 0, skipped: 0, failed: 0, running: 0, queued: 2, settled: 0, percentage: 0, funds: { total: 1, completed: 0, skipped: 0, failed: 0, running: 0, queued: 1 }, benchmarks: { total: 1, completed: 0, skipped: 0, failed: 0, running: 0, queued: 1 } },
+  } } }) }));
+  await page.route("**/api/sync-jobs/e2e-global-sync", (route) => {
+    syncJobRequests += 1;
+    const completed = syncJobRequests > 1;
+    const data = {
+      id: "e2e-global-sync", status: completed ? "partial" : "running", current: completed ? null : { kind: "benchmark", name: "中证红利全收益", startedAt: "2026-08-17T00:00:00.000Z" },
+      failures: completed ? [{ kind: "benchmark", name: "中证红利全收益", error: "指数源暂时不可用" }] : [],
+      summary: completed
+        ? { total: 2, completed: 1, skipped: 0, failed: 1, running: 0, queued: 0, settled: 2, percentage: 100, funds: { total: 1, completed: 1, skipped: 0, failed: 0, running: 0, queued: 0 }, benchmarks: { total: 1, completed: 0, skipped: 0, failed: 1, running: 0, queued: 0 } }
+        : { total: 2, completed: 1, skipped: 0, failed: 0, running: 1, queued: 0, settled: 1, percentage: 50, funds: { total: 1, completed: 1, skipped: 0, failed: 0, running: 0, queued: 0 }, benchmarks: { total: 1, completed: 0, skipped: 0, failed: 0, running: 1, queued: 0 } },
+    };
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data }) });
   });
   const globalSyncButton = page.getByRole("button", { name: "一键同步所有数据" });
   await globalSyncButton.click();
   await expect(globalSyncButton).toBeDisabled();
-  await expect(page.getByText("所有数据同步部分完成：基金 1 只（分区成功 1、失败 1）；指数成功 1、跳过 0、失败 0。")).toBeVisible();
-  expect(fundSyncRequests).toBe(1);
-  expect(benchmarkSyncRequests).toBe(1);
-  await page.unroute("**/api/benchmarks/sync");
-  await page.route("**/api/benchmarks/sync", (route) => route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ error: "指数源暂时不可用" }) }));
-  await globalSyncButton.click();
-  await expect(page.getByText("所有数据同步部分完成：基金 1 只（分区成功 1、失败 1）；指数失败：指数源暂时不可用。")).toBeVisible();
+  const syncProgress = page.getByRole("progressbar", { name: "全部基金与指数同步进度" });
+  await expect(syncProgress).toHaveAttribute("aria-valuenow", "1");
+  await expect(page.getByText("正在增量同步全部基金与指数数据")).toBeVisible();
+  await expect(page.getByText("同步部分完成")).toBeVisible({ timeout: 3_000 });
+  await expect(syncProgress).toHaveAttribute("aria-valuenow", "2");
+  await expect(page.getByText(/失败：中证红利全收益/)).toBeVisible();
+  expect(syncJobRequests).toBeGreaterThanOrEqual(2);
   browserErrors.length = 0;
 
   await page.getByRole("button", { name: "管理分类" }).click();

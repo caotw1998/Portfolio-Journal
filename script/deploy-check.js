@@ -7,13 +7,19 @@ const SAFE_DATABASE_IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
 
 function validateDeploymentEnvironment(environment, workingDirectory = process.cwd()) {
   const errors = [];
-  const required = ["POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD", "WORKSPACE_EMAIL", "TAILSCALE_ALLOWED_LOGIN", "APP_ORIGIN", "BACKUP_ROOT"];
+  const required = ["POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD", "SYNC_WORKER_TOKEN", "WORKSPACE_EMAIL", "TAILSCALE_ALLOWED_LOGIN", "APP_ORIGIN", "BACKUP_ROOT"];
   for (const key of required) {
     if (!environment[key]?.trim()) errors.push(`${key} is required.`);
   }
 
   if (environment.POSTGRES_PASSWORD && !SAFE_SECRET_PATTERN.test(environment.POSTGRES_PASSWORD)) {
     errors.push("POSTGRES_PASSWORD must be at least 32 URL-safe characters (letters, numbers, _ or -). Use: openssl rand -hex 32");
+  }
+  if (environment.SYNC_WORKER_TOKEN && !SAFE_SECRET_PATTERN.test(environment.SYNC_WORKER_TOKEN)) {
+    errors.push("SYNC_WORKER_TOKEN must be at least 32 URL-safe characters (letters, numbers, _ or -). Use: openssl rand -hex 32");
+  }
+  if (environment.SYNC_WORKER_TOKEN && environment.SYNC_WORKER_TOKEN === environment.POSTGRES_PASSWORD) {
+    errors.push("SYNC_WORKER_TOKEN must differ from POSTGRES_PASSWORD.");
   }
   for (const key of ["POSTGRES_DB", "POSTGRES_USER"]) {
     if (environment[key] && !SAFE_DATABASE_IDENTIFIER_PATTERN.test(environment[key])) {
