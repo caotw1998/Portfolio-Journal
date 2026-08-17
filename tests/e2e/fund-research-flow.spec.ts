@@ -114,14 +114,14 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await expect(page.getByRole("button", { name: "增量刷新全部基金" })).toBeEnabled();
   let syncJobRequests = 0;
   await page.route("**/api/sync-jobs", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { reused: false, job: {
-    id: "e2e-global-sync", status: "queued", current: null, failures: [],
+    id: "e2e-global-sync", scope: "all_data", force: false, createdAt: "2026-08-17T00:00:00.000Z", startedAt: null, completedAt: null, status: "queued", current: null, failures: [],
     summary: { total: 2, completed: 0, skipped: 0, failed: 0, running: 0, queued: 2, settled: 0, percentage: 0, funds: { total: 1, completed: 0, skipped: 0, failed: 0, running: 0, queued: 1 }, benchmarks: { total: 1, completed: 0, skipped: 0, failed: 0, running: 0, queued: 1 } },
   } } }) }));
   await page.route("**/api/sync-jobs/e2e-global-sync", (route) => {
     syncJobRequests += 1;
     const completed = syncJobRequests > 1;
     const data = {
-      id: "e2e-global-sync", status: completed ? "partial" : "running", current: completed ? null : { kind: "benchmark", name: "中证红利全收益", startedAt: "2026-08-17T00:00:00.000Z" },
+      id: "e2e-global-sync", scope: "all_data", force: false, createdAt: "2026-08-17T00:00:00.000Z", startedAt: "2026-08-17T00:00:00.000Z", completedAt: completed ? "2026-08-17T00:00:02.000Z" : null, status: completed ? "partial" : "running", current: completed ? null : { kind: "benchmark", name: "中证红利全收益", startedAt: "2026-08-17T00:00:00.000Z" },
       failures: completed ? [{ kind: "benchmark", name: "中证红利全收益", error: "指数源暂时不可用" }] : [],
       summary: completed
         ? { total: 2, completed: 1, skipped: 0, failed: 1, running: 0, queued: 0, settled: 2, percentage: 100, funds: { total: 1, completed: 1, skipped: 0, failed: 0, running: 0, queued: 0 }, benchmarks: { total: 1, completed: 0, skipped: 0, failed: 1, running: 0, queued: 0 } }
@@ -138,7 +138,26 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await expect(page.getByText("同步部分完成")).toBeVisible({ timeout: 3_000 });
   await expect(syncProgress).toHaveAttribute("aria-valuenow", "2");
   await expect(page.getByText(/失败：中证红利全收益/)).toBeVisible();
+  await expect(page.getByText("耗时 00:02")).toBeVisible();
   expect(syncJobRequests).toBeGreaterThanOrEqual(2);
+  await page.unroute("**/api/sync-jobs");
+  let forcedRefreshRequested = false;
+  await page.route("**/api/sync-jobs", (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    const requestUrl = new URL(route.request().url());
+    if (requestUrl.searchParams.get("scope") === "funds" && requestUrl.searchParams.get("force") === "true") {
+      forcedRefreshRequested = true;
+    }
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { reused: false, job: {
+      id: "e2e-forced-funds", scope: "all_funds", force: true, createdAt: "2026-08-17T00:00:00.000Z", startedAt: null, completedAt: null, status: "queued", current: null, failures: [],
+      summary: { total: 1, completed: 0, skipped: 0, failed: 0, running: 0, queued: 1, settled: 0, percentage: 0, funds: { total: 1, completed: 0, skipped: 0, failed: 0, running: 0, queued: 1 }, benchmarks: { total: 0, completed: 0, skipped: 0, failed: 0, running: 0, queued: 0 } },
+    } } }) });
+  });
+  await page.getByRole("button", { name: "强制刷新全部基金资料" }).click();
+  await expect(page.getByText("正在强制刷新全部基金资料")).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "全部基金强制刷新进度" })).toHaveAttribute("aria-valuenow", "0");
+  await expect(page.getByText(/^耗时 \d{2}:\d{2}/)).toBeVisible();
+  expect(forcedRefreshRequested).toBe(true);
   browserErrors.length = 0;
 
   await page.getByRole("button", { name: "管理分类" }).click();

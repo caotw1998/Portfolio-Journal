@@ -17,11 +17,6 @@ type SearchResult = {
   establishedDate: string | null;
 };
 type ResearchCategory = { id: string; name: string; sortOrder: number };
-type FundSyncSummary = {
-  fundCount: number;
-  completedSections: number;
-  failedSections: number;
-};
 type SyncJobSummary = {
   total: number;
   completed: number;
@@ -36,7 +31,12 @@ type SyncJobSummary = {
 };
 type SyncJob = {
   id: string;
+  scope: string;
+  force: boolean;
   status: string;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
   summary: SyncJobSummary;
   current: { kind: string; name: string | null; startedAt: string | null } | null;
   failures: Array<{ kind: string; name: string; error: string | null }>;
@@ -79,6 +79,25 @@ function dateLabel(value: string | null | undefined) {
   return value
     ? new Date(value).toLocaleString("zh-CN", { hour12: false })
     : "尚未同步";
+}
+
+function syncJobTitle(job: SyncJob) {
+  if (job.status === "completed") return job.scope === "all_funds" ? "强制刷新完成" : "同步完成";
+  if (job.status === "partial") return job.scope === "all_funds" ? "强制刷新部分完成" : "同步部分完成";
+  if (job.status === "failed") return job.scope === "all_funds" ? "强制刷新失败" : "同步失败";
+  return job.scope === "all_funds" ? "正在强制刷新全部基金资料" : "正在增量同步全部基金与指数数据";
+}
+
+function formatSyncElapsed(job: SyncJob) {
+  const startedAt = new Date(job.createdAt).getTime();
+  const endedAt = job.completedAt ? new Date(job.completedAt).getTime() : Date.now();
+  const totalSeconds = Math.max(0, Math.floor((endedAt - startedAt) / 1_000));
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  const paddedMinutes = String(minutes).padStart(2, "0");
+  const paddedSeconds = String(seconds).padStart(2, "0");
+  return hours ? `${hours}:${paddedMinutes}:${paddedSeconds}` : `${paddedMinutes}:${paddedSeconds}`;
 }
 
 export function ResearchLibrary({
@@ -130,7 +149,9 @@ export function ResearchLibrary({
           await refreshFunds();
           if (cancelled) return;
           const { summary } = body.data;
-          setGlobalSyncMessage(`${body.data.status === "completed" ? "所有数据同步完成" : body.data.status === "partial" ? "所有数据同步部分完成" : "所有数据同步失败"}：完成 ${summary.completed}、跳过 ${summary.skipped}、失败 ${summary.failed}。`);
+          const subject = body.data.scope === "all_funds" ? "全部基金资料" : "所有数据";
+          const action = body.data.scope === "all_funds" ? "强制刷新" : "同步";
+          setGlobalSyncMessage(`${subject}${action}${body.data.status === "completed" ? "完成" : body.data.status === "partial" ? "部分完成" : "失败"}：完成 ${summary.completed}、跳过 ${summary.skipped}、失败 ${summary.failed}。`);
           setIsGlobalSyncing(false);
           setActiveSyncJobId(null);
           return;
@@ -265,33 +286,6 @@ export function ResearchLibrary({
     });
   }
 
-  async function syncAllFundData(force = false): Promise<FundSyncSummary> {
-    const response = await fetch(`/api/funds/sync${force ? "?force=true" : ""}`, { method: "POST" });
-    const body = (await response.json()) as {
-      data?: { runId?: string; results?: unknown[] };
-      error?: string;
-    };
-    if (!response.ok || !body.data?.runId) {
-      throw new Error(body.error ?? "同步全部基金失败。");
-    }
-
-    await refreshFunds();
-    const runResponse = await fetch(`/api/funds/sync/${body.data.runId}`);
-    const runBody = (await runResponse.json()) as {
-      data?: { items?: Array<{ status: string }> };
-      error?: string;
-    };
-    if (!runResponse.ok || !runBody.data?.items) {
-      throw new Error(runBody.error ?? "读取基金同步结果失败。");
-    }
-
-    return {
-      fundCount: body.data.results?.length ?? 0,
-      completedSections: runBody.data.items.filter((item) => item.status === "completed").length,
-      failedSections: runBody.data.items.filter((item) => item.status === "failed").length,
-    };
-  }
-
   function syncAllData() {
     setGlobalSyncMessage(null);
     setIsGlobalSyncing(true);
@@ -314,15 +308,21 @@ export function ResearchLibrary({
   }
 
   function forceRefreshAllFunds() {
-    setGlobalSyncMessage("正在强制重新抓取全部基金资料，这可能需要几分钟……");
+    setGlobalSyncMessage(null);
     setIsGlobalSyncing(true);
     startTransition(async () => {
       try {
-        const result = await syncAllFundData(true);
-        setGlobalSyncMessage(`全部基金资料已强制刷新：基金 ${result.fundCount} 只（分区成功 ${result.completedSections}、失败 ${result.failedSections}）。`);
+        const response = await fetch("/api/sync-jobs?scope=funds&force=true", { method: "POST" });
+        const body = (await response.json()) as { data?: { job?: SyncJob }; error?: string };
+        if (!response.ok || !body.data?.job) throw new Error(body.error ?? "创建强制刷新任务失败。");
+        setSyncJob(body.data.job);
+        if (["completed", "partial", "failed"].includes(body.data.job.status)) {
+          setIsGlobalSyncing(false);
+          return;
+        }
+        setActiveSyncJobId(body.data.job.id);
       } catch (error) {
         setGlobalSyncMessage(error instanceof Error ? error.message : "强制刷新全部基金失败。");
-      } finally {
         setIsGlobalSyncing(false);
       }
     });
@@ -574,12 +574,12 @@ export function ResearchLibrary({
         {syncJob ? (
           <div className="border-b border-border px-5 py-3" aria-live="polite">
             <div className="flex flex-wrap items-center justify-between gap-2 text-sm leading-6">
-              <p className="font-medium">{syncJob.status === "completed" ? "同步完成" : syncJob.status === "partial" ? "同步部分完成" : syncJob.status === "failed" ? "同步失败" : "正在增量同步全部基金与指数数据"}</p>
-              <p className="tabular-nums text-muted-foreground">{syncJob.summary.settled} / {syncJob.summary.total} · {syncJob.summary.percentage}%</p>
+              <p className="font-medium">{syncJobTitle(syncJob)}</p>
+              <p className="tabular-nums text-muted-foreground">耗时 {formatSyncElapsed(syncJob)} · {syncJob.summary.settled} / {syncJob.summary.total} · {syncJob.summary.percentage}%</p>
             </div>
             <div
               role="progressbar"
-              aria-label="全部基金与指数同步进度"
+              aria-label={syncJob.scope === "all_funds" ? "全部基金强制刷新进度" : "全部基金与指数同步进度"}
               aria-valuemin={0}
               aria-valuemax={syncJob.summary.total}
               aria-valuenow={syncJob.summary.settled}
@@ -589,7 +589,7 @@ export function ResearchLibrary({
               <div className="h-full bg-accent transition-[width] duration-300" style={{ width: `${syncJob.summary.percentage}%` }} />
             </div>
             <p className="mt-2 text-xs leading-5 text-muted-foreground">
-              基金：完成 {syncJob.summary.funds.completed}、跳过 {syncJob.summary.funds.skipped}、失败 {syncJob.summary.funds.failed} / {syncJob.summary.funds.total}；指数：完成 {syncJob.summary.benchmarks.completed}、跳过 {syncJob.summary.benchmarks.skipped}、失败 {syncJob.summary.benchmarks.failed} / {syncJob.summary.benchmarks.total}。
+              基金：完成 {syncJob.summary.funds.completed}、跳过 {syncJob.summary.funds.skipped}、失败 {syncJob.summary.funds.failed} / {syncJob.summary.funds.total}。{syncJob.scope !== "all_funds" ? ` 指数：完成 ${syncJob.summary.benchmarks.completed}、跳过 ${syncJob.summary.benchmarks.skipped}、失败 ${syncJob.summary.benchmarks.failed} / ${syncJob.summary.benchmarks.total}。` : ""}
               {syncJob.current?.name ? ` 当前：${syncJob.current.name}` : ""}
             </p>
             {syncJob.failures.length ? <p className="mt-1 text-xs leading-5 text-destructive">失败：{syncJob.failures.slice(0, 3).map((item) => `${item.name}（${item.error ?? "未知错误"}）`).join("；")}{syncJob.failures.length > 3 ? "……" : ""}</p> : null}

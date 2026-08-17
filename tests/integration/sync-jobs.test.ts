@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, test } from "vitest";
 import { prisma } from "@/lib/db/prisma";
-import { createOrReuseAllDataSyncJob, getSyncJob, isWorkerTokenValid, processNextSyncJobBatch } from "@/lib/domain/sync-jobs";
+import { createOrReuseAllDataSyncJob, createOrReuseForcedFundsSyncJob, getSyncJob, isWorkerTokenValid, processNextSyncJobBatch } from "@/lib/domain/sync-jobs";
 import { createUniqueEmail, resetDatabase } from "./helpers";
 
 beforeEach(resetDatabase);
@@ -41,6 +41,23 @@ describe("persistent all-data sync jobs", () => {
 
     await expect(processNextSyncJobBatch()).resolves.toMatchObject({ processed: 0, jobId: created.job.id });
     await expect(getSyncJob(user.id, created.job.id)).resolves.toMatchObject({ status: "completed", summary: { total: 1, skipped: 1, percentage: 100 } });
+  });
+
+  test("creates a reusable forced refresh job containing funds only", async () => {
+    const user = await prisma.user.create({ data: { email: createUniqueEmail("sync-job-forced-funds"), passwordHash: "test" } });
+    const fund = await prisma.fund.create({ data: { code: "510050", name: "上证50ETF", market: "CN_FUND" } });
+    await prisma.userFund.create({ data: { userId: user.id, fundId: fund.id } });
+    await prisma.benchmarkInstrument.create({ data: { userId: user.id, code: "000300", market: "CN", name: "沪深300", provider: "public_market" } });
+
+    const created = await createOrReuseForcedFundsSyncJob(user.id);
+    const reused = await createOrReuseForcedFundsSyncJob(user.id);
+
+    expect(reused).toMatchObject({ reused: true, job: { id: created.job.id } });
+    expect(created.job).toMatchObject({
+      scope: "all_funds",
+      force: true,
+      summary: { total: 1, funds: { total: 1, queued: 1 }, benchmarks: { total: 0 } },
+    });
   });
 
   test("accepts only the configured worker token", () => {

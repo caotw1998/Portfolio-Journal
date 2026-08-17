@@ -4,6 +4,7 @@ import { syncBenchmarkHistory } from "@/lib/domain/benchmarks";
 import { syncFund } from "@/lib/funds/service";
 
 const SYNC_SCOPE_ALL_DATA = "all_data";
+const SYNC_SCOPE_ALL_FUNDS = "all_funds";
 const FUND_KIND = "fund";
 const BENCHMARK_KIND = "benchmark";
 const FUND_CONCURRENCY = 4;
@@ -89,9 +90,12 @@ async function readJob(userId: string, jobId: string) {
   return job;
 }
 
-export async function createOrReuseAllDataSyncJob(userId: string, force = false) {
+async function createOrReuseSyncJob(
+  userId: string,
+  { scope, force, includeBenchmarks }: { scope: string; force: boolean; includeBenchmarks: boolean },
+) {
   const existing = await prisma.syncJob.findFirst({
-    where: { userId, scope: SYNC_SCOPE_ALL_DATA, status: { in: ["queued", "running"] } },
+    where: { userId, scope, status: { in: ["queued", "running"] } },
     orderBy: { createdAt: "desc" },
     select: { id: true },
   });
@@ -99,12 +103,14 @@ export async function createOrReuseAllDataSyncJob(userId: string, force = false)
 
   const [funds, benchmarks] = await Promise.all([
     prisma.userFund.findMany({ where: { userId }, orderBy: { createdAt: "asc" }, select: { fundId: true } }),
-    prisma.benchmarkInstrument.findMany({ where: { userId }, orderBy: { displayOrder: "asc" }, select: { id: true, provider: true } }),
+    includeBenchmarks
+      ? prisma.benchmarkInstrument.findMany({ where: { userId }, orderBy: { displayOrder: "asc" }, select: { id: true, provider: true } })
+      : Promise.resolve([]),
   ]);
   const job = await prisma.syncJob.create({
     data: {
       userId,
-      scope: SYNC_SCOPE_ALL_DATA,
+      scope,
       force,
       items: {
         create: [
@@ -122,6 +128,22 @@ export async function createOrReuseAllDataSyncJob(userId: string, force = false)
     select: { id: true },
   });
   return { job: serializeJob(await readJob(userId, job.id)), reused: false };
+}
+
+export async function createOrReuseAllDataSyncJob(userId: string, force = false) {
+  return createOrReuseSyncJob(userId, {
+    scope: SYNC_SCOPE_ALL_DATA,
+    force,
+    includeBenchmarks: true,
+  });
+}
+
+export async function createOrReuseForcedFundsSyncJob(userId: string) {
+  return createOrReuseSyncJob(userId, {
+    scope: SYNC_SCOPE_ALL_FUNDS,
+    force: true,
+    includeBenchmarks: false,
+  });
 }
 
 export async function getSyncJob(userId: string, jobId: string) {
