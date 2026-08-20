@@ -3,7 +3,8 @@ import { cookies } from "next/headers";
 import { LayoutModeControl, type LayoutMode } from "@/components/layout-mode-control";
 
 const navigationItems = [
-  { href: "/research", label: "研究库" },
+  { href: "/funds", label: "基金" },
+  { href: "/stocks", label: "股票" },
   { href: "/compare", label: "基金对比" },
   { href: "/model-portfolios", label: "模拟组合" },
   { href: "/benchmarks", label: "指数库" },
@@ -38,7 +39,7 @@ export async function AppShell({
               </div>
             </div>
 
-            <nav aria-label="全站主导航" className="fixed inset-x-0 bottom-0 z-50 grid grid-cols-5 gap-px border-t border-border bg-card px-1 pb-[env(safe-area-inset-bottom)] pt-1 shadow-[0_-10px_30px_rgba(31,37,32,0.16)] sm:static sm:flex sm:flex-wrap sm:gap-2 sm:border-t-0 sm:px-5 sm:py-3 sm:shadow-none md:px-7 layout-mobile:fixed layout-mobile:inset-x-0 layout-mobile:bottom-0 layout-mobile:grid layout-mobile:grid-cols-5 layout-mobile:gap-px layout-mobile:border-t layout-mobile:px-1 layout-mobile:pb-[env(safe-area-inset-bottom)] layout-mobile:pt-1 layout-mobile:shadow-[0_-10px_30px_rgba(31,37,32,0.16)] layout-desktop:static layout-desktop:flex layout-desktop:flex-wrap layout-desktop:gap-2 layout-desktop:border-t-0 layout-desktop:px-7 layout-desktop:py-3 layout-desktop:shadow-none">
+            <nav aria-label="全站主导航" className="fixed inset-x-0 bottom-0 z-50 grid grid-cols-6 gap-px border-t border-border bg-card px-1 pb-[env(safe-area-inset-bottom)] pt-1 shadow-[0_-10px_30px_rgba(31,37,32,0.16)] sm:static sm:flex sm:flex-wrap sm:gap-2 sm:border-t-0 sm:px-5 sm:py-3 sm:shadow-none md:px-7 layout-mobile:fixed layout-mobile:inset-x-0 layout-mobile:bottom-0 layout-mobile:grid layout-mobile:grid-cols-6 layout-mobile:gap-px layout-mobile:border-t layout-mobile:px-1 layout-mobile:pb-[env(safe-area-inset-bottom)] layout-mobile:pt-1 layout-mobile:shadow-[0_-10px_30px_rgba(31,37,32,0.16)] layout-desktop:static layout-desktop:flex layout-desktop:flex-wrap layout-desktop:gap-2 layout-desktop:border-t-0 layout-desktop:px-7 layout-desktop:py-3 layout-desktop:shadow-none">
               {navigationItems.map((item) => {
                 const isActive = currentPath === item.href;
                 const isCurrent = isActive || currentPath.startsWith(`${item.href}/`);

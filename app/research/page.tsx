@@ -11,7 +11,7 @@ export default async function ResearchPage() {
   const user = await requireWorkspaceUser();
   const [funds, categories] = await Promise.all([listUserFunds(user.id), listResearchCategories(user.id)]);
   return (
-    <AppShell currentPath="/research">
+    <AppShell currentPath="/funds">
       <section className="grid gap-5 border border-border bg-card p-5 md:grid-cols-[1fr_auto] md:items-end layout-mobile:grid-cols-1 layout-desktop:grid-cols-[1fr_auto] layout-desktop:items-end">
         <h1 className="text-3xl font-semibold tracking-tight">从资料采集开始建立基金判断</h1>
         <div className="border-l-2 border-[var(--warm-highlight)] pl-4"><p className="text-3xl font-semibold">{funds.length}</p><p className="text-xs text-muted-foreground">只研究标的</p></div>

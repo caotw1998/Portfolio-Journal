@@ -17,7 +17,7 @@ export async function resetDatabase() {
   assertSafeTestDatabase();
   const { prisma } = await import("@/lib/db/prisma");
   await prisma.$transaction([
-    prisma.auditLog.deleteMany(), prisma.stockIndustryClassification.deleteMany(), prisma.fundHolding.deleteMany(), prisma.fundPortfolioReport.deleteMany(),
+    prisma.auditLog.deleteMany(), prisma.stockIndustryClassification.deleteMany(), prisma.stockDividendEvent.deleteMany(), prisma.stockPriceSnapshot.deleteMany(), prisma.userStock.deleteMany(), prisma.stock.deleteMany(), prisma.fundHolding.deleteMany(), prisma.fundPortfolioReport.deleteMany(),
     prisma.fundScaleSnapshot.deleteMany(), prisma.fundManagerTenure.deleteMany(), prisma.fundNavSnapshot.deleteMany(),
     prisma.fundSourceSnapshot.deleteMany(), prisma.userFund.deleteMany(), prisma.benchmarkPriceSnapshot.deleteMany(),
     prisma.benchmarkInstrument.deleteMany(), prisma.fund.deleteMany(), prisma.session.deleteMany(), prisma.user.deleteMany(),

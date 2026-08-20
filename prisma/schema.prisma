@@ -17,6 +17,7 @@ model User {
 
   sessions                      Session[]
   userFunds                     UserFund[]
+  userStocks                    UserStock[]
   benchmarkInstruments          BenchmarkInstrument[]
   auditLogs                     AuditLog[]
   syncRuns                      FundSyncRun[]
@@ -26,6 +27,57 @@ model User {
   researchCategoriesInitialized Boolean               @default(false)
   chartSingleColor              String                @default("#2f6f9f")
   chartSeriesColors             String[]              @default(["#2f6f9f", "#c98352", "#2f7d5f", "#9a4b5c", "#5a659d", "#a47a2b", "#3f7f8f"])
+}
+
+model Stock {
+  id            String    @id @default(cuid())
+  code          String
+  market        String
+  name          String
+  sourceSymbol  String
+  currency      String
+  latestSyncAt  DateTime?
+  latestSyncError String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  followers     UserStock[]
+  priceSnapshots StockPriceSnapshot[]
+  dividendEvents StockDividendEvent[]
+  @@unique([code, market])
+  @@index([name])
+}
+
+model UserStock {
+  id        String   @id @default(cuid())
+  userId    String
+  stockId   String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stock     Stock    @relation(fields: [stockId], references: [id], onDelete: Cascade)
+  @@unique([userId, stockId])
+  @@index([stockId])
+}
+
+model StockPriceSnapshot {
+  id        String   @id @default(cuid())
+  stockId   String
+  date      DateTime @db.Date
+  close     Decimal  @db.Decimal(20, 8)
+  source    String
+  stock     Stock    @relation(fields: [stockId], references: [id], onDelete: Cascade)
+  @@unique([stockId, date])
+  @@index([stockId, date])
+}
+
+model StockDividendEvent {
+  id        String   @id @default(cuid())
+  stockId   String
+  exDate    DateTime @db.Date
+  amount    Decimal  @db.Decimal(20, 8)
+  source    String
+  stock     Stock    @relation(fields: [stockId], references: [id], onDelete: Cascade)
+  @@unique([stockId, exDate])
+  @@index([stockId, exDate])
 }
 
 model Session {
