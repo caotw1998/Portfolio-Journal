@@ -32,7 +32,7 @@ export async function addUserStock(userId: string, rawCode: unknown) {
   const item = catalog(rawCode);
   const stock = await prisma.stock.upsert({ where: { code_market: { code: item.code, market: item.market } }, create: item, update: item });
   await prisma.userStock.upsert({ where: { userId_stockId: { userId, stockId: stock.id } }, create: { userId, stockId: stock.id }, update: {} });
-  await syncStock(userId, stock.id, false);
+  await syncStock(userId, stock.id);
   return stock;
 }
 async function yahooHistory(symbol: string) {
