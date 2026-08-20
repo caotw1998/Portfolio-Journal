@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db/prisma";
 import { buildDividendAdjustedSeries, calculateSeriesMetrics } from "@/lib/funds/metrics";
 
 const CATALOG = [
-  { code: "600519", market: "CN", name: "贵州茅台", sourceSymbol: "1.600519", currency: "CNY" },
+  { code: "600519", market: "CN", name: "贵州茅台", sourceSymbol: "600519.SS", currency: "CNY" },
   { code: "0700", market: "HK", name: "腾讯控股", sourceSymbol: "0700.HK", currency: "HKD" },
   { code: "BRK-B", market: "US", name: "伯克希尔哈撒韦 B", sourceSymbol: "BRK-B", currency: "USD" },
 ];
