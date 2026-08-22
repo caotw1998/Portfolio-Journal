@@ -10,6 +10,26 @@ const CATALOG = [
 
 function day(value: Date) { return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate())); }
 function keyDate(value: Date) { return value.toISOString().slice(0, 10); }
+function seconds(value: Date) { return Math.floor(value.getTime() / 1_000).toString(); }
+
+export function buildYahooDailyHistoryUrl(symbol: string, now = new Date()) {
+  const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`);
+  url.searchParams.set("period1", "0");
+  url.searchParams.set("period2", seconds(now));
+  url.searchParams.set("interval", "1d");
+  url.searchParams.set("events", "div");
+  return url;
+}
+
+export function ensureDailyPriceDensity(prices: Array<{ date: Date }>) {
+  if (prices.length < 2) throw new ApiError("公开来源未返回足够的日收盘价。", 502);
+  const first = prices[0]!.date.getTime();
+  const last = prices.at(-1)!.date.getTime();
+  const historyDays = Math.floor((last - first) / 86_400_000);
+  if (historyDays >= 180 && prices.length < historyDays / 12) {
+    throw new ApiError("公开来源返回的不是日线数据，已拒绝覆盖现有历史。", 502);
+  }
+}
 function catalog(code: string) {
   const item = CATALOG.find((entry) => entry.code === code.trim().toUpperCase() || entry.name.includes(code.trim()));
   if (!item) throw new ApiError("目前仅支持可检索到的中美港股票。", 404);
@@ -35,23 +55,21 @@ export async function addUserStock(userId: string, rawCode: unknown) {
   await syncStock(userId, stock.id);
   return stock;
 }
-async function yahooHistory(symbol: string) {
-  const url = new URL(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}`);
-  url.searchParams.set("range", "max"); url.searchParams.set("interval", "1d"); url.searchParams.set("events", "div");
-  const response = await fetch(url, { cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
+async function yahooHistory(symbol: string, fetchImpl: typeof fetch = fetch) {
+  const response = await fetchImpl(buildYahooDailyHistoryUrl(symbol), { cache: "no-store", headers: { "User-Agent": "Mozilla/5.0" } });
   if (!response.ok) throw new ApiError(`股票行情同步失败（${response.status}）。`, 502);
   const root = await response.json() as { chart?: { result?: Array<{ timestamp?: number[]; indicators?: { quote?: Array<{ close?: Array<number | null> }> }; events?: { dividends?: Record<string, { date?: number; amount?: number }> } }> } };
   const result = root.chart?.result?.[0]; const closes = result?.indicators?.quote?.[0]?.close ?? [];
   const prices = (result?.timestamp ?? []).flatMap((timestamp, index) => typeof closes[index] === "number" && closes[index]! > 0 ? [{ date: day(new Date(timestamp * 1000)), close: closes[index]! }] : []);
+  ensureDailyPriceDensity(prices);
   const dividends = Object.values(result?.events?.dividends ?? {}).flatMap((entry) => entry.date && entry.amount && entry.amount > 0 ? [{ exDate: day(new Date(entry.date * 1000)), amount: entry.amount }] : []);
   return { prices, dividends };
 }
-export async function syncStock(userId: string, stockId: string) {
+export async function syncStock(userId: string, stockId: string, fetchImpl: typeof fetch = fetch) {
   const owned = await prisma.userStock.findFirst({ where: { userId, stockId }, include: { stock: true } });
   if (!owned) throw new ApiError("股票不存在。", 404);
   try {
-    const history = await yahooHistory(owned.stock.sourceSymbol);
-    if (history.prices.length < 2) throw new ApiError("公开来源未返回足够的日收盘价。", 502);
+    const history = await yahooHistory(owned.stock.sourceSymbol, fetchImpl);
     await prisma.$transaction(async (tx) => {
       await tx.stockPriceSnapshot.deleteMany({ where: { stockId } });
       await tx.stockDividendEvent.deleteMany({ where: { stockId } });

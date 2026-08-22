@@ -24,6 +24,7 @@ ENV NODE_ENV=production
 COPY prisma ./prisma
 COPY script/bootstrap-workspace.js ./script/bootstrap-workspace.js
 COPY script/deploy-check.js ./script/deploy-check.js
+COPY script/repair-stock-daily-history.mjs ./script/repair-stock-daily-history.mjs
 RUN pnpm exec prisma generate
 CMD ["sh", "-c", "node script/deploy-check.js && pnpm exec prisma migrate deploy && node script/bootstrap-workspace.js"]
 
