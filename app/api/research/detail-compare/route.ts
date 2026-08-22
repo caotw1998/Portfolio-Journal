@@ -3,8 +3,8 @@ import { requireWorkspaceUser } from "@/lib/domain/session";
 import { compareDetailSeries, type DetailSeriesKind } from "@/lib/funds/service";
 
 function requiredKind(value: string | null, label: string): DetailSeriesKind {
-  if (value === "fund" || value === "benchmark") return value;
-  throw new ApiError(`${label} 必须是 fund 或 benchmark。`, 400);
+  if (value === "fund" || value === "benchmark" || value === "stock") return value;
+  throw new ApiError(`${label} 必须是 fund、benchmark 或 stock。`, 400);
 }
 
 function requiredId(value: string | null, label: string) {

@@ -27,7 +27,18 @@ async function seedResearchData() {
       ] },
     },
   });
-  return { user, fund, benchmark };
+  const stock = await prisma.stock.create({
+    data: {
+      code: "TEST", market: "US", name: "测试股票", sourceSymbol: "TEST", currency: "USD",
+      followers: { create: { userId: user.id } },
+      priceSnapshots: { create: [
+        { date: new Date("2025-01-02T00:00:00Z"), close: 100, source: "test" },
+        { date: new Date("2026-01-02T00:00:00Z"), close: 110, source: "test" },
+      ] },
+      dividendEvents: { create: { exDate: new Date("2026-01-02T00:00:00Z"), amount: 5, source: "test" } },
+    },
+  });
+  return { user, fund, benchmark, stock };
 }
 
 async function seedSecondFundAndBenchmark(userId: string) {
@@ -51,6 +62,19 @@ async function seedSecondFundAndBenchmark(userId: string) {
     },
   });
   return { fund, benchmark };
+}
+
+async function seedSecondStock(userId: string) {
+  return prisma.stock.create({
+    data: {
+      code: "SECOND", market: "US", name: "第二测试股票", sourceSymbol: "SECOND", currency: "USD",
+      followers: { create: { userId } },
+      priceSnapshots: { create: [
+        { date: new Date("2025-01-02T00:00:00Z"), close: 50, source: "test" },
+        { date: new Date("2026-01-02T00:00:00Z"), close: 60, source: "test" },
+      ] },
+    },
+  });
 }
 
 describe("fund research service", () => {
@@ -105,15 +129,15 @@ describe("fund research service", () => {
   });
 
   test.each([
-    ["fund", "fund"],
-    ["fund", "benchmark"],
-    ["benchmark", "fund"],
-    ["benchmark", "benchmark"],
+    ["fund", "fund"], ["fund", "benchmark"], ["fund", "stock"],
+    ["benchmark", "fund"], ["benchmark", "benchmark"], ["benchmark", "stock"],
+    ["stock", "fund"], ["stock", "benchmark"], ["stock", "stock"],
   ] as const)("compares a %s primary with a %s baseline in role order", async (primaryKind, baselineKind) => {
-    const { user, fund, benchmark } = await seedResearchData();
+    const { user, fund, benchmark, stock } = await seedResearchData();
     const second = await seedSecondFundAndBenchmark(user.id);
-    const primaryId = primaryKind === "fund" ? fund.id : benchmark.id;
-    const baselineId = baselineKind === "fund" ? second.fund.id : second.benchmark.id;
+    const secondStock = await seedSecondStock(user.id);
+    const primaryId = primaryKind === "fund" ? fund.id : primaryKind === "benchmark" ? benchmark.id : stock.id;
+    const baselineId = baselineKind === "fund" ? second.fund.id : baselineKind === "benchmark" ? second.benchmark.id : secondStock.id;
 
     const result = await compareDetailSeries({ userId: user.id, primaryKind, primaryId, baselineKind, baselineId });
 
@@ -124,7 +148,7 @@ describe("fund research service", () => {
   });
 
   test("lists only owned baselines with usable data and rejects self comparison", async () => {
-    const { user, fund, benchmark } = await seedResearchData();
+    const { user, fund, benchmark, stock } = await seedResearchData();
     const emptyBenchmark = await prisma.benchmarkInstrument.create({
       data: { userId: user.id, code: "EMPTY", market: "GLOBAL", name: "空指数", provider: "public_market" },
     });
@@ -133,8 +157,20 @@ describe("fund research service", () => {
     expect(options).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: fund.id, kind: "fund", code: fund.code }),
       expect.objectContaining({ id: benchmark.id, kind: "benchmark", code: benchmark.code }),
+      expect.objectContaining({ id: stock.id, kind: "stock", code: stock.code, dataBasisLabel: "分红再投资复权" }),
     ]));
     expect(options.some((option) => option.id === emptyBenchmark.id)).toBe(false);
     await expect(compareDetailSeries({ userId: user.id, primaryKind: "fund", primaryId: fund.id, baselineKind: "fund", baselineId: fund.id })).rejects.toMatchObject({ status: 400 });
+  });
+
+  test("uses dividend-reinvested stock performance and enforces stock ownership", async () => {
+    const { user, stock } = await seedResearchData();
+    const secondStock = await seedSecondStock(user.id);
+    const comparison = await compareDetailSeries({ userId: user.id, primaryKind: "stock", primaryId: stock.id, baselineKind: "stock", baselineId: secondStock.id });
+    expect(comparison.series[0]).toMatchObject({ kind: "stock", basis: "dividend_reinvested" });
+    expect(comparison.series[0]?.metrics.rangeReturn).toBeCloseTo(0.15);
+
+    const another = await prisma.user.create({ data: { email: createUniqueEmail("stock-owner"), passwordHash: "test" } });
+    await expect(compareDetailSeries({ userId: another.id, primaryKind: "stock", primaryId: stock.id, baselineKind: "stock", baselineId: secondStock.id })).rejects.toMatchObject({ status: 404 });
   });
 });

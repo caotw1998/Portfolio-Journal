@@ -51,7 +51,7 @@ type ChartView = "performance" | "drawdown" | "marketCycles";
 
 export type DetailBaselineOption = {
   id: string;
-  kind: "fund" | "benchmark";
+  kind: "fund" | "benchmark" | "stock";
   name: string;
   code: string;
   market: string;
@@ -131,6 +131,12 @@ function basisLabel(basis: ComparisonReturnSeries["basis"]) {
   return "指数点位";
 }
 
+function baselineKindLabel(kind: DetailBaselineOption["kind"]) {
+  if (kind === "fund") return "基金";
+  if (kind === "stock") return "股票";
+  return "指数";
+}
+
 export function DetailPerformanceChart({
   primaryId,
   primaryKind,
@@ -144,7 +150,7 @@ export function DetailPerformanceChart({
   chartSeriesColors = [...visualToneColors.chartBenchmark],
 }: {
   primaryId: string;
-  primaryKind: "fund" | "benchmark";
+  primaryKind: "fund" | "benchmark" | "stock";
   primaryName: string;
   primaryMarket: string;
   points: FundNavChartPoint[];
@@ -213,8 +219,15 @@ export function DetailPerformanceChart({
   const matchedBenchmarks = useMemo(
     () => benchmarkQuery.trim()
       ? searchLibraryOptions(availableBenchmarks, benchmarkQuery, new Set(selectedBenchmark?.id ? [selectedBenchmark.id] : []))
-      : availableBenchmarks.filter((item) => item.id !== selectedBenchmark?.id).slice(0, 8),
+      : availableBenchmarks.filter((item) => item.id !== selectedBenchmark?.id),
     [availableBenchmarks, benchmarkQuery, selectedBenchmark],
+  );
+  const groupedMatchedBenchmarks = useMemo(
+    () => (["fund", "benchmark", "stock"] as const).map((kind) => ({
+      kind,
+      options: matchedBenchmarks.filter((item) => item.kind === kind),
+    })).filter((group) => group.options.length),
+    [matchedBenchmarks],
   );
   const unmatchedPublicBenchmarks = useMemo(() => publicBenchmarkResults.filter((candidate) => !availableBenchmarks.some((benchmark) => {
     const chinaMarkets = new Set(["CN", "SH", "SZ"]);
@@ -900,10 +913,10 @@ export function DetailPerformanceChart({
               </button>
               {isBenchmarkMenuOpen ? (
                 <div role="dialog" aria-label="选择基准" className="fixed left-1/2 top-24 z-[60] max-h-[min(22rem,calc(100dvh-12rem))] w-[min(16rem,calc(100vw-1.5rem))] -translate-x-1/2 overflow-y-auto border border-border bg-card p-3 shadow-xl layout-desktop:absolute layout-desktop:bottom-full layout-desktop:left-auto layout-desktop:right-0 layout-desktop:top-auto layout-desktop:mb-2 layout-desktop:max-h-[min(32rem,calc(100vh-6rem))] layout-desktop:w-[min(18rem,calc(100vw-2rem))] layout-desktop:translate-x-0">
-                  <label className="grid gap-1 text-xs text-muted-foreground">搜索研究库<input autoFocus aria-label="搜索基金或指数" value={benchmarkQuery} onChange={(event) => updateBenchmarkQuery(event.target.value)} placeholder="输入基金或指数名称、代码" autoComplete="off" className="border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent" /></label>
+                  <label className="grid gap-1 text-xs text-muted-foreground">搜索研究库<input autoFocus aria-label="搜索基金、指数或股票" value={benchmarkQuery} onChange={(event) => updateBenchmarkQuery(event.target.value)} placeholder="输入基金、指数或股票名称、代码" autoComplete="off" className="border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus:border-accent" /></label>
                   {selectedBenchmark ? <div className="mt-2 flex items-center justify-between gap-2 border border-accent bg-background px-3 py-2 text-sm"><span className="truncate">{selectedBenchmark.name}</span><button type="button" aria-label={`移除基准 ${selectedBenchmark.name}`} onClick={() => selectBenchmark("")} className="shrink-0 text-xs text-muted-foreground hover:text-foreground">移除</button></div> : null}
                   <div className="mt-2 max-h-64 overflow-y-auto border border-border">
-                      {matchedBenchmarks.map((benchmark) => <button key={`${benchmark.kind}:${benchmark.id}`} type="button" aria-label={`${benchmark.name} · ${benchmark.code}`} onClick={() => selectBenchmark(`${benchmark.kind}:${benchmark.id}`)} className="w-full border-b border-border px-3 py-2 text-left last:border-0 hover:bg-muted focus:bg-muted"><span className="block text-sm font-medium">{benchmark.name}</span><span className="mt-0.5 block font-mono text-[11px] text-muted-foreground">{benchmark.kind === "fund" ? "基金" : "指数"} · {benchmark.code} · {benchmark.market}{benchmark.dataBasisLabel ? ` · ${benchmark.dataBasisLabel}` : ""}</span></button>)}
+                      {groupedMatchedBenchmarks.map((group) => <div key={group.kind} className="border-b border-border last:border-0"><p className="bg-muted px-3 py-1.5 text-[10px] font-semibold tracking-[0.14em] text-muted-foreground">{baselineKindLabel(group.kind)}</p>{group.options.map((benchmark) => <button key={`${benchmark.kind}:${benchmark.id}`} type="button" aria-label={`${benchmark.name} · ${benchmark.code}`} onClick={() => selectBenchmark(`${benchmark.kind}:${benchmark.id}`)} className="w-full border-t border-border px-3 py-2 text-left first:border-t-0 hover:bg-muted focus:bg-muted"><span className="block text-sm font-medium">{benchmark.name}</span><span className="mt-0.5 block font-mono text-[11px] text-muted-foreground">{baselineKindLabel(benchmark.kind)} · {benchmark.code} · {benchmark.market}{benchmark.dataBasisLabel ? ` · ${benchmark.dataBasisLabel}` : ""}</span></button>)}</div>)}
                       {unmatchedPublicBenchmarks.map((candidate) => (
                         <div key={`${candidate.source}:${candidate.sourceSymbol}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b border-border px-3 py-2 last:border-0">
                           <div className="min-w-0"><p className="truncate text-sm font-medium">{candidate.name}</p><p className="mt-0.5 font-mono text-[11px] text-muted-foreground">{candidate.code} · {candidate.market} · {candidate.source}</p></div>
@@ -911,7 +924,7 @@ export function DetailPerformanceChart({
                         </div>
                       ))}
                       {isSearchingBenchmarks ? <p className="px-3 py-3 text-xs text-muted-foreground">正在搜索公开指数……</p> : null}
-                      {!isSearchingBenchmarks && !matchedBenchmarks.length && !unmatchedPublicBenchmarks.length ? <p className="px-3 py-4 text-sm text-muted-foreground">没有匹配的可用基金或指数。</p> : null}
+                      {!isSearchingBenchmarks && !matchedBenchmarks.length && !unmatchedPublicBenchmarks.length ? <p className="px-3 py-4 text-sm text-muted-foreground">没有匹配的可用基金、指数或股票。</p> : null}
                   </div>
                   {benchmarkSearchMessage ? <p className="mt-2 text-xs leading-5 text-red-700" aria-live="polite">{benchmarkSearchMessage}</p> : null}
                 </div>

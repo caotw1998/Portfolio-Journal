@@ -29,7 +29,7 @@ export type FundReturnPoint = FundNavChartPoint & {
 
 export type ComparisonSeriesInput = {
   id: string;
-  kind: "fund" | "benchmark";
+  kind: "fund" | "benchmark" | "stock";
   name: string;
   code: string;
   basis: "dividend_reinvested" | "accumulated_nav" | "unit_nav" | "close";
@@ -50,7 +50,7 @@ export type ComparisonReturnSeries = Omit<ComparisonSeriesInput, "points"> & {
 
 export type SelectedRangeSeriesMetric = {
   id: string;
-  kind: "fund" | "benchmark";
+  kind: "fund" | "benchmark" | "stock";
   name: string;
   fromDate: string;
   toDate: string;

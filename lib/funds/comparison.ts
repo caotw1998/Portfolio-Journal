@@ -10,7 +10,7 @@ export type ResearchMetrics = {
 
 export type ResearchSeriesInput = {
   id: string;
-  kind: "fund" | "benchmark";
+  kind: "fund" | "benchmark" | "stock";
   name: string;
   code: string;
   basis: "dividend_reinvested" | "accumulated_nav" | "unit_nav" | "close";

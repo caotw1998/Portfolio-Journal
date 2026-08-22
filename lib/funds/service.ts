@@ -99,6 +99,25 @@ function buildFundPerformanceSeries(
   }));
 }
 
+function buildStockPerformanceSeries(
+  priceSnapshots: Array<{ date: Date; close: Prisma.Decimal }>,
+  dividendEvents: Array<{ exDate: Date; amount: Prisma.Decimal }>,
+) {
+  const dividendsByDate = new Map<string, number>();
+  for (const event of dividendEvents) {
+    const date = event.exDate.toISOString().slice(0, 10);
+    dividendsByDate.set(date, (dividendsByDate.get(date) ?? 0) + event.amount.toNumber());
+  }
+  return buildDividendAdjustedSeries(priceSnapshots.map((point) => {
+    const date = point.date.toISOString().slice(0, 10);
+    return {
+      date,
+      unitNav: point.close.toNumber(),
+      dividendAmount: dividendsByDate.get(date) ?? 0,
+    };
+  }));
+}
+
 export async function searchFunds(query: string) {
   const normalized = query.trim();
   if (normalized.length < 2) {
@@ -1045,10 +1064,10 @@ export async function compareResearchSeries(input: {
   return comparison;
 }
 
-export type DetailSeriesKind = "fund" | "benchmark";
+export type DetailSeriesKind = "fund" | "benchmark" | "stock";
 
 export async function listDetailBaselineOptions(userId: string) {
-  const [fundRows, benchmarkRows] = await Promise.all([
+  const [fundRows, benchmarkRows, stockRows] = await Promise.all([
     prisma.userFund.findMany({
       where: { userId, fund: { navSnapshots: { some: {} } } },
       select: { fund: { select: { id: true, code: true, name: true, market: true } } },
@@ -1062,6 +1081,11 @@ export async function listDetailBaselineOptions(userId: string) {
       },
       orderBy: [{ displayOrder: "asc" }, { createdAt: "asc" }],
     }),
+    prisma.userStock.findMany({
+      where: { userId, stock: { priceSnapshots: { some: {} } } },
+      select: { stock: { select: { id: true, code: true, name: true, market: true } } },
+      orderBy: { createdAt: "desc" },
+    }),
   ]);
   return [
     ...fundRows.map(({ fund }) => ({ id: fund.id, kind: "fund" as const, code: fund.code, name: fund.name ?? fund.code, market: fund.market, dataBasisLabel: null })),
@@ -1072,6 +1096,14 @@ export async function listDetailBaselineOptions(userId: string) {
       name: benchmark.name,
       market: benchmark.market,
       dataBasisLabel: benchmark.priceSnapshots[0]?.source === "proxy_etf_515450" ? "515450 ETF 代理" : null,
+    })),
+    ...stockRows.map(({ stock }) => ({
+      id: stock.id,
+      kind: "stock" as const,
+      code: stock.code,
+      name: stock.name,
+      market: stock.market,
+      dataBasisLabel: "分红再投资复权",
     })),
   ];
 }
@@ -1108,6 +1140,31 @@ async function loadDetailSeries(input: {
       code: followed.fund.code,
       basis: "dividend_reinvested",
       points: buildFundPerformanceSeries(followed.fund.navSnapshots, followed.fund.dividendEvents),
+    };
+  }
+  if (input.kind === "stock") {
+    const followed = await prisma.userStock.findUnique({
+      where: { userId_stockId: { userId: input.userId, stockId: input.id } },
+      select: {
+        stock: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            priceSnapshots: { where: { date: dateRange }, orderBy: { date: "asc" } },
+            dividendEvents: { where: { exDate: dateRange }, orderBy: { exDate: "asc" } },
+          },
+        },
+      },
+    });
+    if (!followed) throw new ApiError("股票不存在或无权访问。", 404);
+    return {
+      id: followed.stock.id,
+      kind: "stock",
+      name: followed.stock.name,
+      code: followed.stock.code,
+      basis: "dividend_reinvested",
+      points: buildStockPerformanceSeries(followed.stock.priceSnapshots, followed.stock.dividendEvents),
     };
   }
   const benchmark = await prisma.benchmarkInstrument.findFirst({
