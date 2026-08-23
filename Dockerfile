@@ -25,6 +25,7 @@ COPY prisma ./prisma
 COPY script/bootstrap-workspace.js ./script/bootstrap-workspace.js
 COPY script/deploy-check.js ./script/deploy-check.js
 COPY script/repair-stock-daily-history.mjs ./script/repair-stock-daily-history.mjs
+COPY script/import-csi-dividend-valuations.mjs ./script/import-csi-dividend-valuations.mjs
 RUN pnpm exec prisma generate
 CMD ["sh", "-c", "node script/deploy-check.js && pnpm exec prisma migrate deploy && node script/bootstrap-workspace.js"]
 
@@ -51,4 +52,5 @@ CMD ["node", "server.js"]
 
 FROM runner AS worker
 COPY --from=builder --chown=nextjs:nextjs /app/script/sync-worker.mjs ./script/sync-worker.mjs
+COPY --from=builder --chown=nextjs:nextjs /app/script/daily-valuation-scheduler.mjs ./script/daily-valuation-scheduler.mjs
 CMD ["node", "script/sync-worker.mjs"]

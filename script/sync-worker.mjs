@@ -1,13 +1,16 @@
+import { runDailyValuationScheduler } from "./daily-valuation-scheduler.mjs";
+
 const endpoint = process.env.SYNC_WORKER_ENDPOINT;
+const dailyValuationEndpoint = process.env.SYNC_DAILY_VALUATION_ENDPOINT;
 const token = process.env.SYNC_WORKER_TOKEN;
 
-if (!endpoint || !token) {
-  throw new Error("SYNC_WORKER_ENDPOINT and SYNC_WORKER_TOKEN are required.");
+if (!endpoint || !dailyValuationEndpoint || !token) {
+  throw new Error("SYNC_WORKER_ENDPOINT, SYNC_DAILY_VALUATION_ENDPOINT and SYNC_WORKER_TOKEN are required.");
 }
 
 const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-async function run() {
+async function runSyncJobs() {
   for (;;) {
     try {
       const response = await fetch(endpoint, {
@@ -25,4 +28,7 @@ async function run() {
   }
 }
 
-void run();
+void Promise.all([
+  runSyncJobs(),
+  runDailyValuationScheduler({ endpoint: dailyValuationEndpoint, token, delayImpl: delay }),
+]);

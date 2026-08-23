@@ -54,6 +54,7 @@ yarn-error.log*
 
 # private research data and database backups
 /data/*.snapshot.json
+/data/private-imports/
 *.dump
 *.sql.gz
 /backups/

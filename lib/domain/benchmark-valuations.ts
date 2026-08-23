@@ -8,6 +8,7 @@ export type BenchmarkValuationPoint = {
   peTtm?: number | null;
   pb?: number | null;
   dividendYield?: number | null;
+  riskFreeRate?: number | null;
   source?: string | null;
   sourceUrl?: string | null;
   peSource?: string | null;
@@ -16,7 +17,11 @@ export type BenchmarkValuationPoint = {
   pbSourceUrl?: string | null;
   dividendYieldSource?: string | null;
   dividendYieldSourceUrl?: string | null;
+  riskFreeRateSource?: string | null;
+  riskFreeRateSourceUrl?: string | null;
 };
+
+export type RiskFreeComparisonMode = "difference" | "ratio";
 
 const CSINDEX_PE_URL = "https://www.csindex.com.cn/csindex-home/perf/indexCsiDsPe";
 const CSINDEX_CURRENT_URL = "https://www.csindex.com.cn/csindex-home/data-service/indexValuation";
@@ -137,6 +142,31 @@ export function calculateValuationSummary(points: BenchmarkValuationPoint[], met
     observationCount,
     thresholds: [0.2, 0.4, 0.6, 0.8].map((value) => quantile(values, value)!),
   };
+}
+
+export function calculateRiskFreeComparison(points: BenchmarkValuationPoint[], range: BenchmarkValuationRange) {
+  const available = points
+    .flatMap((point) => {
+      const dividendYield = point.dividendYield;
+      const riskFreeRate = point.riskFreeRate;
+      if (typeof dividendYield !== "number" || !Number.isFinite(dividendYield)) return [];
+      if (typeof riskFreeRate !== "number" || !Number.isFinite(riskFreeRate)) return [];
+      return [{
+        date: point.date,
+        dividendYield,
+        riskFreeRate,
+        difference: dividendYield - riskFreeRate,
+        ratio: riskFreeRate > 0 ? dividendYield / riskFreeRate : null,
+      }];
+    })
+    .sort((left, right) => left.date.localeCompare(right.date));
+  const latest = available.at(-1) ?? null;
+  if (!latest) return { points: [], latest: null };
+  if (range === "all") return { points: available, latest };
+  const cutoff = new Date(`${latest.date}T00:00:00Z`);
+  cutoff.setUTCFullYear(cutoff.getUTCFullYear() - Number.parseInt(range, 10));
+  const cutoffText = cutoff.toISOString().slice(0, 10);
+  return { points: available.filter((point) => point.date >= cutoffText), latest };
 }
 
 async function requestJson(url: URL, fetchImpl: typeof fetch) {

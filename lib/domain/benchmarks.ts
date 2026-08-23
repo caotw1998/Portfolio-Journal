@@ -1,11 +1,16 @@
-import type { BenchmarkInstrument } from "@prisma/client";
+import type { BenchmarkInstrument, BenchmarkValuationSnapshot, Prisma } from "@prisma/client";
 import { ApiError } from "@/lib/api/responses";
 import { prisma } from "@/lib/db/prisma";
 import { createAuditLog } from "@/lib/domain/audit";
 import { BENCHMARK_PROVIDERS, BENCHMARK_STATUSES } from "@/lib/domain/constants";
 import { optionalString, parseBenchmarkProvider, parseBenchmarkStatus, parseJsonBody, requireDate, requireString } from "@/lib/domain/validation";
 import { buildResearchComparison, type ResearchSeriesInput } from "@/lib/funds/comparison";
-import { fetchCsindexBenchmarkValuations } from "@/lib/domain/benchmark-valuations";
+import type { BenchmarkValuationPoint } from "@/lib/domain/benchmark-valuations";
+import {
+  CSI_DIVIDEND_HISTORY_CUTOFF,
+  CSI_DIVIDEND_TOTAL_RETURN_CODE,
+  fetchOfficialBenchmarkValuations,
+} from "@/lib/domain/benchmark-valuation-sources";
 import { fetchCsindexTopConstituents } from "@/lib/domain/benchmark-constituents";
 
 export type HistoryPoint = { date: Date; closeValue: number };
@@ -86,6 +91,130 @@ function historicalWindowStart(latestDate: Date) {
 
 function requiresRefresh(lastSyncAt: Date | null, lastSyncError: string | null, ttlMs: number, force: boolean) {
   return force || Boolean(lastSyncError) || !lastSyncAt || lastSyncAt.getTime() + ttlMs <= Date.now();
+}
+
+type StoredValuationRow = {
+  date: string;
+  peTtm: number | null;
+  pb: number | null;
+  dividendYield: number | null;
+  riskFreeRate: number | null;
+  source: string;
+  sourceUrl: string | null;
+  peSource: string | null;
+  peSourceUrl: string | null;
+  pbSource: string | null;
+  pbSourceUrl: string | null;
+  dividendYieldSource: string | null;
+  dividendYieldSourceUrl: string | null;
+  riskFreeRateSource: string | null;
+  riskFreeRateSourceUrl: string | null;
+};
+
+function storedValuationRow(point: BenchmarkValuationSnapshot): StoredValuationRow {
+  return {
+    date: point.date.toISOString().slice(0, 10),
+    peTtm: point.peTtm?.toNumber() ?? null,
+    pb: point.pb?.toNumber() ?? null,
+    dividendYield: point.dividendYield?.toNumber() ?? null,
+    riskFreeRate: point.riskFreeRate?.toNumber() ?? null,
+    source: point.source,
+    sourceUrl: point.sourceUrl,
+    peSource: point.peSource,
+    peSourceUrl: point.peSourceUrl,
+    pbSource: point.pbSource,
+    pbSourceUrl: point.pbSourceUrl,
+    dividendYieldSource: point.dividendYieldSource,
+    dividendYieldSourceUrl: point.dividendYieldSourceUrl,
+    riskFreeRateSource: point.riskFreeRateSource,
+    riskFreeRateSourceUrl: point.riskFreeRateSourceUrl,
+  };
+}
+
+function mergeValuationRows(existingPoints: BenchmarkValuationSnapshot[], incomingPoints: BenchmarkValuationPoint[], benchmarkCode: string) {
+  const protectedHistory = benchmarkCode.toUpperCase() === CSI_DIVIDEND_TOTAL_RETURN_CODE;
+  const allowedIncomingPoints = protectedHistory
+    ? incomingPoints.filter((point) => point.date > CSI_DIVIDEND_HISTORY_CUTOFF)
+    : incomingPoints;
+  const rowsByDate = new Map(existingPoints.map((point) => {
+    const row = storedValuationRow(point);
+    return [row.date, row];
+  }));
+  for (const point of allowedIncomingPoints) {
+    const existing = rowsByDate.get(point.date);
+    const hasPe = typeof point.peTtm === "number";
+    const hasPb = typeof point.pb === "number";
+    const hasDividend = typeof point.dividendYield === "number";
+    const hasRiskFree = typeof point.riskFreeRate === "number";
+    const pointSource = point.peSource ?? point.pbSource ?? point.dividendYieldSource ?? point.riskFreeRateSource ?? "csindex";
+    const pointSourceUrl = point.peSourceUrl ?? point.pbSourceUrl ?? point.dividendYieldSourceUrl ?? point.riskFreeRateSourceUrl ?? "https://www.csindex.com.cn/";
+    rowsByDate.set(point.date, {
+      date: point.date,
+      peTtm: hasPe ? point.peTtm! : existing?.peTtm ?? null,
+      pb: hasPb ? point.pb! : existing?.pb ?? null,
+      dividendYield: hasDividend ? point.dividendYield! : existing?.dividendYield ?? null,
+      riskFreeRate: hasRiskFree ? point.riskFreeRate! : existing?.riskFreeRate ?? null,
+      source: existing?.source ?? pointSource,
+      sourceUrl: existing?.sourceUrl ?? pointSourceUrl,
+      peSource: hasPe ? point.peSource ?? "csindex" : existing?.peSource ?? null,
+      peSourceUrl: hasPe ? point.peSourceUrl ?? "https://www.csindex.com.cn/" : existing?.peSourceUrl ?? null,
+      pbSource: hasPb ? point.pbSource ?? "csindex" : existing?.pbSource ?? null,
+      pbSourceUrl: hasPb ? point.pbSourceUrl ?? "https://www.csindex.com.cn/" : existing?.pbSourceUrl ?? null,
+      dividendYieldSource: hasDividend ? point.dividendYieldSource ?? "csindex" : existing?.dividendYieldSource ?? null,
+      dividendYieldSourceUrl: hasDividend ? point.dividendYieldSourceUrl ?? "https://www.csindex.com.cn/" : existing?.dividendYieldSourceUrl ?? null,
+      riskFreeRateSource: hasRiskFree ? point.riskFreeRateSource ?? "chinabond_10y_government" : existing?.riskFreeRateSource ?? null,
+      riskFreeRateSourceUrl: hasRiskFree ? point.riskFreeRateSourceUrl ?? null : existing?.riskFreeRateSourceUrl ?? null,
+    });
+  }
+  return {
+    allRows: Array.from(rowsByDate.values()).sort((left, right) => left.date.localeCompare(right.date)),
+    incomingRows: Array.from(new Set(allowedIncomingPoints.map((point) => point.date)))
+      .map((date) => rowsByDate.get(date)!)
+      .sort((left, right) => left.date.localeCompare(right.date)),
+    protectedHistory,
+  };
+}
+
+function valuationCreateData(benchmarkInstrumentId: string, point: StoredValuationRow) {
+  return {
+    benchmarkInstrumentId,
+    date: new Date(`${point.date}T00:00:00Z`),
+    peTtm: point.peTtm,
+    pb: point.pb,
+    dividendYield: point.dividendYield,
+    riskFreeRate: point.riskFreeRate,
+    source: point.source,
+    sourceUrl: point.sourceUrl,
+    peSource: point.peSource,
+    peSourceUrl: point.peSourceUrl,
+    pbSource: point.pbSource,
+    pbSourceUrl: point.pbSourceUrl,
+    dividendYieldSource: point.dividendYieldSource,
+    dividendYieldSourceUrl: point.dividendYieldSourceUrl,
+    riskFreeRateSource: point.riskFreeRateSource,
+    riskFreeRateSourceUrl: point.riskFreeRateSourceUrl,
+  };
+}
+
+async function persistValuationRows(
+  tx: Prisma.TransactionClient,
+  benchmarkInstrumentId: string,
+  merged: ReturnType<typeof mergeValuationRows>,
+) {
+  if (merged.protectedHistory) {
+    for (const point of merged.incomingRows) {
+      const data = valuationCreateData(benchmarkInstrumentId, point);
+      await tx.benchmarkValuationSnapshot.upsert({
+        where: { benchmarkInstrumentId_date: { benchmarkInstrumentId, date: data.date } },
+        create: data,
+        update: data,
+      });
+    }
+    return;
+  }
+  if (!merged.allRows.length) return;
+  await tx.benchmarkValuationSnapshot.deleteMany({ where: { benchmarkInstrumentId } });
+  await tx.benchmarkValuationSnapshot.createMany({ data: merged.allRows.map((point) => valuationCreateData(benchmarkInstrumentId, point)) });
 }
 
 async function mapWithConcurrency<Input, Output>(items: Input[], concurrency: number, mapper: (item: Input) => Promise<Output>) {
@@ -722,7 +851,7 @@ export async function syncBenchmarkHistory(
       BENCHMARK_VALUATION_TTL_MS,
       force,
     );
-    const valuationResult = refreshValuations ? await fetchCsindexBenchmarkValuations(benchmark, fetchImpl) : null;
+    const valuationResult = refreshValuations ? await fetchOfficialBenchmarkValuations(benchmark, fetchImpl) : null;
     const seriesMetadata = benchmarkSeriesMetadata(benchmark);
     const supportsCsindexConstituents = ["CN", "SH"].includes(benchmark.market.toUpperCase()) && !benchmark.code.startsWith("399");
     const refreshConstituents = supportsCsindexConstituents && requiresRefresh(
@@ -740,38 +869,7 @@ export async function syncBenchmarkHistory(
       where: { benchmarkInstrumentId: benchmark.id },
       orderBy: { date: "asc" },
     }) : [];
-    const valuationsByDate = new Map(existingValuations.map((point) => [point.date.toISOString().slice(0, 10), {
-      date: point.date.toISOString().slice(0, 10),
-      peTtm: point.peTtm?.toNumber() ?? null,
-      pb: point.pb?.toNumber() ?? null,
-      dividendYield: point.dividendYield?.toNumber() ?? null,
-      source: point.source,
-      sourceUrl: point.sourceUrl,
-      peSource: point.peSource,
-      peSourceUrl: point.peSourceUrl,
-      pbSource: point.pbSource,
-      pbSourceUrl: point.pbSourceUrl,
-      dividendYieldSource: point.dividendYieldSource,
-      dividendYieldSourceUrl: point.dividendYieldSourceUrl,
-    }]));
-    for (const point of valuationResult?.points ?? []) {
-      const existing = valuationsByDate.get(point.date);
-      valuationsByDate.set(point.date, {
-        date: point.date,
-        peTtm: typeof point.peTtm === "number" ? point.peTtm : existing?.peTtm ?? null,
-        pb: typeof point.pb === "number" ? point.pb : existing?.pb ?? null,
-        dividendYield: typeof point.dividendYield === "number" ? point.dividendYield : existing?.dividendYield ?? null,
-        source: "csindex",
-        sourceUrl: "https://www.csindex.com.cn/",
-        peSource: typeof point.peTtm === "number" ? "csindex" : existing?.peSource ?? null,
-        peSourceUrl: typeof point.peTtm === "number" ? "https://www.csindex.com.cn/" : existing?.peSourceUrl ?? null,
-        pbSource: typeof point.pb === "number" ? "csindex" : existing?.pbSource ?? null,
-        pbSourceUrl: typeof point.pb === "number" ? "https://www.csindex.com.cn/" : existing?.pbSourceUrl ?? null,
-        dividendYieldSource: typeof point.dividendYield === "number" ? "csindex" : existing?.dividendYieldSource ?? null,
-        dividendYieldSourceUrl: typeof point.dividendYield === "number" ? "https://www.csindex.com.cn/" : existing?.dividendYieldSourceUrl ?? null,
-      });
-    }
-    const valuations = Array.from(valuationsByDate.values());
+    const valuations = mergeValuationRows(existingValuations, valuationResult?.points ?? [], benchmark.code);
     return await prisma.$transaction(async (tx) => {
       await tx.benchmarkPriceSnapshot.deleteMany({
         where: historyStart
@@ -779,24 +877,7 @@ export async function syncBenchmarkHistory(
           : { benchmarkInstrumentId: benchmark.id },
       });
       await tx.benchmarkPriceSnapshot.createMany({ data: points.map((point) => ({ benchmarkInstrumentId: benchmark.id, date: utcDay(point.date), closeValue: point.closeValue, source })) });
-      if (valuationResult?.supported && valuations.length) {
-        await tx.benchmarkValuationSnapshot.deleteMany({ where: { benchmarkInstrumentId: benchmark.id } });
-        await tx.benchmarkValuationSnapshot.createMany({ data: valuations.map((point) => ({
-          benchmarkInstrumentId: benchmark.id,
-          date: new Date(`${point.date}T00:00:00Z`),
-          peTtm: point.peTtm,
-          pb: point.pb,
-          dividendYield: point.dividendYield,
-          source: point.source,
-          sourceUrl: point.sourceUrl,
-          peSource: point.peSource,
-          peSourceUrl: point.peSourceUrl,
-          pbSource: point.pbSource,
-          pbSourceUrl: point.pbSourceUrl,
-          dividendYieldSource: point.dividendYieldSource,
-          dividendYieldSourceUrl: point.dividendYieldSourceUrl,
-        })) });
-      }
+      if (valuationResult?.supported) await persistValuationRows(tx, benchmark.id, valuations);
       if (constituentResult?.snapshot) {
         const snapshot = constituentResult.snapshot;
         const stored = await tx.benchmarkConstituentSnapshot.upsert({
@@ -817,7 +898,7 @@ export async function syncBenchmarkHistory(
         constituentLastSyncError: refreshConstituents ? constituentResult?.error : undefined,
         ...seriesMetadata,
       } });
-      await createAuditLog(tx, { userId, entityType: "benchmark_instrument", entityId: benchmark.id, action: "sync", source: "web", afterJson: { rows: points.length, incrementalFrom: historyStart?.toISOString().slice(0, 10) ?? null, valuationRows: valuations.length, valuationError: valuationResult?.error ?? null, constituentRows: constituentResult?.snapshot?.constituents.length ?? 0, constituentError: constituentResult?.error ?? null } });
+      await createAuditLog(tx, { userId, entityType: "benchmark_instrument", entityId: benchmark.id, action: "sync", source: "web", afterJson: { rows: points.length, incrementalFrom: historyStart?.toISOString().slice(0, 10) ?? null, valuationRows: valuations.allRows.length, valuationError: valuationResult?.error ?? null, constituentRows: constituentResult?.snapshot?.constituents.length ?? 0, constituentError: constituentResult?.error ?? null } });
       return updated;
     });
   } catch (error) {
@@ -825,6 +906,52 @@ export async function syncBenchmarkHistory(
     await prisma.benchmarkInstrument.update({ where: { id: benchmark.id }, data: { status: "sync_error", lastSyncError: message } });
     throw error;
   }
+}
+
+export async function syncCsiDividendValuations(
+  userId: string,
+  fetchImpl: typeof fetch = fetch,
+  asOfDate: Date = new Date(),
+) {
+  const benchmark = await prisma.benchmarkInstrument.findFirst({
+    where: { userId, code: CSI_DIVIDEND_TOTAL_RETURN_CODE },
+  });
+  if (!benchmark) throw new ApiError("研究库中没有中证红利全收益指数（H00922）。", 404);
+  const valuationResult = await fetchOfficialBenchmarkValuations(benchmark, fetchImpl, asOfDate);
+  const existingValuations = await prisma.benchmarkValuationSnapshot.findMany({
+    where: { benchmarkInstrumentId: benchmark.id },
+    orderBy: { date: "asc" },
+  });
+  const valuations = mergeValuationRows(existingValuations, valuationResult.points, benchmark.code);
+  await prisma.$transaction(async (tx) => {
+    await persistValuationRows(tx, benchmark.id, valuations);
+    await tx.benchmarkInstrument.update({
+      where: { id: benchmark.id },
+      data: {
+        valuationLastSyncAt: new Date(),
+        valuationLastSyncError: valuationResult.error,
+      },
+    });
+    await createAuditLog(tx, {
+      userId,
+      entityType: "benchmark_instrument",
+      entityId: benchmark.id,
+      action: "sync_valuation",
+      source: "worker",
+      afterJson: {
+        protectedThrough: CSI_DIVIDEND_HISTORY_CUTOFF,
+        incomingRows: valuations.incomingRows.length,
+        totalRows: valuations.allRows.length,
+        error: valuationResult.error,
+      },
+    });
+  });
+  return {
+    benchmarkId: benchmark.id,
+    incomingRows: valuations.incomingRows.length,
+    totalRows: valuations.allRows.length,
+    error: valuationResult.error,
+  };
 }
 
 export async function syncAllBenchmarks(userId: string, fetchImpl: typeof fetch = fetch, options: { force?: boolean } = {}) {
@@ -906,6 +1033,7 @@ export async function getBenchmarkDetail(userId: string, benchmarkId: string) {
       peTtm: point.peTtm?.toNumber() ?? null,
       pb: point.pb?.toNumber() ?? null,
       dividendYield: point.dividendYield?.toNumber() ?? null,
+      riskFreeRate: point.riskFreeRate?.toNumber() ?? null,
       source: point.source,
       sourceUrl: point.sourceUrl,
       peSource: point.peSource ?? point.source,
@@ -914,6 +1042,8 @@ export async function getBenchmarkDetail(userId: string, benchmarkId: string) {
       pbSourceUrl: point.pbSourceUrl ?? point.sourceUrl,
       dividendYieldSource: point.dividendYieldSource ?? point.source,
       dividendYieldSourceUrl: point.dividendYieldSourceUrl ?? point.sourceUrl,
+      riskFreeRateSource: point.riskFreeRateSource ?? point.source,
+      riskFreeRateSourceUrl: point.riskFreeRateSourceUrl ?? point.sourceUrl,
     })),
     constituentSnapshots: benchmark.constituentSnapshots.map((snapshot) => ({
       id: snapshot.id,

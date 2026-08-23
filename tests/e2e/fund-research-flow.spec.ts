@@ -142,14 +142,14 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   expect(syncJobRequests).toBeGreaterThanOrEqual(2);
   await page.unroute("**/api/sync-jobs");
   let forcedRefreshRequested = false;
-  await page.route("**/api/sync-jobs", (route) => {
+  await page.route("**/api/sync-jobs?*", (route) => {
     if (route.request().method() !== "POST") return route.fallback();
     const requestUrl = new URL(route.request().url());
     if (requestUrl.searchParams.get("scope") === "funds" && requestUrl.searchParams.get("force") === "true") {
       forcedRefreshRequested = true;
     }
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { reused: false, job: {
-      id: "e2e-forced-funds", scope: "all_funds", force: true, createdAt: "2026-08-17T00:00:00.000Z", startedAt: null, completedAt: null, status: "queued", current: null, failures: [],
+      id: "e2e-forced-funds", scope: "all_funds", force: true, createdAt: new Date().toISOString(), startedAt: null, completedAt: null, status: "queued", current: null, failures: [],
       summary: { total: 1, completed: 0, skipped: 0, failed: 0, running: 0, queued: 1, settled: 0, percentage: 0, funds: { total: 1, completed: 0, skipped: 0, failed: 0, running: 0, queued: 1 }, benchmarks: { total: 0, completed: 0, skipped: 0, failed: 0, running: 0, queued: 0 } },
     } } }) });
   });
@@ -157,7 +157,7 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await expect(page.getByText("正在强制刷新全部基金资料")).toBeVisible();
   await expect(page.getByRole("progressbar", { name: "全部基金强制刷新进度" })).toHaveAttribute("aria-valuenow", "0");
   await expect(page.getByText(/^耗时 \d{2}:\d{2}/)).toBeVisible();
-  expect(forcedRefreshRequested).toBe(true);
+  await expect.poll(() => forcedRefreshRequested).toBe(true);
   browserErrors.length = 0;
 
   await page.getByRole("button", { name: "管理分类" }).click();
@@ -175,8 +175,9 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   const benchmarkValuations = Array.from({ length: 24 }, (_, index) => ({
     date: new Date(Date.UTC(2024, index, 1)),
     peTtm: 10 + index * 0.2,
-    pb: index === 23 ? 1.46 : null,
-    dividendYield: index === 23 ? 2.68 : null,
+    pb: 1.2 + index * 0.01,
+    dividendYield: 3.2 + index * 0.02,
+    riskFreeRate: 1.8 + index * 0.01,
     source: "csindex",
     sourceUrl: "https://www.csindex.com.cn/",
   }));
@@ -251,9 +252,12 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await expect(valuationSection.getByRole("menuitem", { name: "近5年" })).toBeVisible();
   await valuationSection.getByRole("menuitem", { name: "近5年" }).click();
   await expect(valuationSection.getByRole("button", { name: "估值时间区间：近5年" })).toBeVisible();
-  await valuationSection.getByRole("button", { name: /股息率/ }).click();
-  await expect(valuationSection.getByText(/当前只有.*一个股息率快照/)).toBeVisible();
-  await expect(valuationSection.getByTestId("benchmark-valuation-chart")).toHaveCount(0);
+  await valuationSection.getByRole("button", { name: /^股息率 / }).click();
+  await expect(valuationSection.getByTestId("benchmark-valuation-chart")).toBeVisible();
+  await valuationSection.getByRole("button", { name: /股息率和无风险利率/ }).click();
+  await expect(valuationSection.getByText("10年期无风险利率")).toBeVisible();
+  await valuationSection.getByRole("button", { name: "比值" }).click();
+  await expect(valuationSection.getByTestId("benchmark-valuation-chart")).toBeVisible();
   await page.screenshot({ path: "/tmp/benchmark-valuation-desktop.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
@@ -299,13 +303,13 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   page.on("request", (request) => { if (request.url().includes("/api/research/detail-compare")) detailCompareRequests += 1; });
   await expect(page.getByTestId("manager-change-legend")).toHaveCount(0);
   await page.getByRole("button", { name: "添加基准" }).click();
-  await page.getByLabel("搜索基金或指数").fill("110022");
+  await page.getByLabel("搜索基金、指数或股票").fill("110022");
   await page.getByRole("button", { name: "易方达消费行业股票 · 110022" }).click();
   await expect(page.getByRole("button", { name: "基准：易方达消费行业股票" })).toBeVisible();
   await expect(page.getByText("基准收益")).toBeVisible();
   await expect(page.getByTestId("market-cycle-label")).toHaveCount(0);
   expect(detailCompareRequests).toBe(1);
-  await page.getByRole("button", { name: /时间区间：/ }).click();
+  await page.getByRole("button", { name: /^时间区间：/ }).click();
   await page.getByRole("menuitem", { name: "1年" }).click();
   await expect.poll(() => detailCompareRequests).toBe(1);
   await page.goBack();
@@ -361,7 +365,7 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await page.reload();
   await expect(page.getByLabel("单曲线默认颜色")).toHaveValue("#123456");
   await expect(page.getByLabel("多曲线颜色 1")).toHaveValue("#112233");
-  await page.getByRole("link", { name: "研究库" }).click();
+  await page.getByRole("link", { name: "基金", exact: true }).click();
   await page.getByRole("link", { name: "易方达消费行业股票" }).click();
   await expect(page.getByRole("heading", { name: "业绩与风险" })).toBeVisible();
   const visibleRangeSummary = page.getByTestId("visible-range-performance-summary");
@@ -440,7 +444,7 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await expect(page.getByText("+28.57%", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("年化收益")).toBeVisible();
   await page.getByRole("button", { name: "添加基准" }).click();
-  await page.getByLabel("搜索基金或指数").fill("标普A股大盘红利低波");
+  await page.getByLabel("搜索基金、指数或股票").fill("标普A股大盘红利低波");
   await expect(page.getByText("标普中国A股大盘红利低波50指数")).toBeVisible();
   await page.getByRole("button", { name: "加入", exact: true }).click();
   await expect(page.getByRole("button", { name: "基准：标普中国A股大盘红利低波50指数" })).toBeVisible();
@@ -541,7 +545,7 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await page.getByRole("button", { name: "时间区间：5年" }).click();
   await page.getByRole("menuitem", { name: "1年" }).click();
   await expect(page.getByText("2025-08-01 至 2026-07-01 · 2 个观测点")).toHaveCount(0);
-  await expect(page.getByText("+16.13%", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("+44.00%", { exact: true }).first()).toBeVisible();
   await page.getByRole("button", { name: "时间区间：1年" }).click();
   await page.getByRole("menuitem", { name: "自定义" }).click();
   await page.getByLabel("开始日期").fill("2024-01-01");
@@ -562,7 +566,7 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   const globalNavigationWidths = await globalNavigation.evaluate((element) => ({ client: element.clientWidth, scroll: element.scrollWidth }));
   expect(globalNavigationWidths.scroll).toBe(globalNavigationWidths.client);
   const globalNavigationLinks = globalNavigation.getByRole("link");
-  await expect(globalNavigationLinks).toHaveCount(5);
+  await expect(globalNavigationLinks).toHaveCount(6);
   const globalNavigationLinkBoxes = await globalNavigationLinks.evaluateAll((links) => links.map((link) => link.getBoundingClientRect().toJSON()));
   expect(new Set(globalNavigationLinkBoxes.map((box) => Math.round(box.y))).size).toBe(1);
   const mobileDisclosures = page.locator("details[data-responsive-disclosure]");
@@ -704,7 +708,7 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   }
   await expect(page.getByRole("button", { name: "添加基准" })).toBeVisible();
   await page.getByRole("button", { name: "添加基准" }).click();
-  await page.getByLabel("搜索基金或指数").fill("000300");
+  await page.getByLabel("搜索基金、指数或股票").fill("000300");
   await page.getByRole("button", { name: "沪深300 · 000300" }).click();
   await expect(page.getByRole("button", { name: "基准：沪深300" })).toBeVisible();
   await expect(page.getByText("成立来收益")).toBeVisible();
@@ -850,7 +854,7 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/research");
-  await expect(globalNavigation.getByRole("link", { name: "研究库" })).toHaveAttribute("aria-current", "page");
+  await expect(globalNavigation.getByRole("link", { name: "基金", exact: true })).toHaveAttribute("aria-current", "page");
   await expect(page.getByRole("heading", { name: "从资料采集开始建立基金判断" })).toBeVisible();
   const mobileCategoryNavigation = page.getByRole("navigation", { name: "研究库分类" });
   const categoryWidths = await mobileCategoryNavigation.evaluate((element) => ({ client: element.clientWidth, scroll: element.scrollWidth }));
@@ -876,15 +880,16 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   expect(mobileGlobalNavigationBox).not.toBeNull();
   expect(mobilePageContentBox!.y + mobilePageContentBox!.height).toBeLessThanOrEqual(mobileGlobalNavigationBox!.y + 1);
   for (const item of [
+    { label: "股票", path: "/stocks" },
     { label: "基金对比", path: "/compare" },
     { label: "模拟组合", path: "/model-portfolios" },
     { label: "指数库", path: "/benchmarks" },
     { label: "设置", path: "/settings" },
-    { label: "研究库", path: "/research" },
+    { label: "基金", path: "/funds" },
   ]) {
-    await globalNavigation.getByRole("link", { name: item.label }).click();
+    await globalNavigation.getByRole("link", { name: item.label, exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`${item.path}$`));
-    await expect(globalNavigation.getByRole("link", { name: item.label })).toHaveAttribute("aria-current", "page");
+    await expect(globalNavigation.getByRole("link", { name: item.label, exact: true })).toHaveAttribute("aria-current", "page");
   }
   await page.screenshot({ path: "/tmp/fund-research-mobile.png", fullPage: true });
   await page.setViewportSize({ width: 1440, height: 1000 });

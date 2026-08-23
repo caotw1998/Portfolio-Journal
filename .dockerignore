@@ -12,6 +12,7 @@ playwright-report
 tests
 plan
 data/*.snapshot.json
+data/private-imports
 *.dump
 *.sql.gz
 npm-debug.log*

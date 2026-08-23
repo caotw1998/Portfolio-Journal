@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, test, vi } from "vitest";
+import * as XLSX from "xlsx";
 import { prisma } from "@/lib/db/prisma";
 import {
   createBenchmark,
@@ -114,6 +115,55 @@ describe("benchmark search persistence and sync", () => {
     expect(stored.constituentLastSyncError).toBeNull();
     expect(stored.constituentSnapshots[0]?.coverage).toBe("top10");
     expect(stored.constituentSnapshots[0]?.constituents[0]).toMatchObject({ code: "600519", name: "贵州茅台" });
+  });
+
+  test("protects imported H00922 history and appends D/P2 plus ChinaBond data after the cutoff", async () => {
+    const user = await prisma.user.create({ data: { email: createUniqueEmail("benchmark-protected-valuation"), passwordHash: "test" } });
+    const benchmark = await createBenchmark(user.id, { code: "H00922", market: "CN", name: "中证红利全收益", sourceSymbol: "1.H00922" });
+    await prisma.benchmarkValuationSnapshot.create({ data: {
+      benchmarkInstrumentId: benchmark.id,
+      date: new Date("2026-08-21T00:00:00Z"),
+      peTtm: 8.56,
+      pb: 0.83,
+      dividendYield: 4.16,
+      riskFreeRate: 1.68,
+      source: "touzid_excel_history",
+      peSource: "touzid_excel_history",
+      pbSource: "touzid_excel_history",
+      dividendYieldSource: "touzid_excel_history",
+      riskFreeRateSource: "touzid_excel_history",
+    } });
+    const indicatorWorkbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(indicatorWorkbook, XLSX.utils.aoa_to_sheet([
+      ["日期Date", "指数代码Index Code", "股息率1（总股本）D/P1", "股息率2（计算用股本）D/P2"],
+      ["20260822", "000922", 4.3, 4.15],
+    ]), "Sheet1");
+    const indicatorBody = XLSX.write(indicatorWorkbook, { type: "array", bookType: "xls" });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      if (url.hostname === "push2his.eastmoney.com") return Response.json({ data: { klines: ["2026-08-21,0,5000", "2026-08-22,0,5010"] } });
+      if (url.pathname.endsWith("/indexCsiDsPe")) return Response.json({ code: "200", success: true, data: [{ tradeDate: "20260821", peg: 8.48 }, { tradeDate: "20260822", peg: 8.49 }] });
+      if (url.pathname.endsWith("/indexValuation")) return Response.json({ code: "200", success: true, data: { tradeDate: "20260822", indexValuations: [{ indexName: "中证红利", peg: 8.49, pb: 0.74, dp: 4.3 }] } });
+      if (url.pathname.endsWith("/000922indicator.xls")) return new Response(indicatorBody);
+      if (url.hostname === "yield.chinabond.com.cn") return new Response("<table><tr><td>中债国债收益率曲线</td><td>2026-08-22</td><td></td><td></td><td></td><td></td><td></td><td></td><td>1.69</td><td></td></tr></table>");
+      if (url.pathname.includes("/index/weight/top10new/")) return new Response("unavailable", { status: 503 });
+      return new Response("not found", { status: 404 });
+    });
+
+    await syncBenchmarkHistory(user.id, benchmark.id, fetchMock, { force: true });
+
+    const rows = await prisma.benchmarkValuationSnapshot.findMany({ where: { benchmarkInstrumentId: benchmark.id }, orderBy: { date: "asc" } });
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ source: "touzid_excel_history", peSource: "touzid_excel_history", dividendYieldSource: "touzid_excel_history" });
+    expect(rows[0]?.peTtm?.toNumber()).toBe(8.56);
+    expect(rows[0]?.pb?.toNumber()).toBe(0.83);
+    expect(rows[0]?.dividendYield?.toNumber()).toBe(4.16);
+    expect(rows[0]?.riskFreeRate?.toNumber()).toBe(1.68);
+    expect(rows[1]?.peTtm?.toNumber()).toBe(8.49);
+    expect(rows[1]?.pb?.toNumber()).toBe(0.74);
+    expect(rows[1]?.dividendYield?.toNumber()).toBe(4.15);
+    expect(rows[1]?.riskFreeRate?.toNumber()).toBe(1.69);
+    expect(rows[1]).toMatchObject({ dividendYieldSource: "csindex_dp2", riskFreeRateSource: "chinabond_10y_government" });
   });
 
   test("does not fail price sync when optional valuation endpoints fail", async () => {

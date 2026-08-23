@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  calculateRiskFreeComparison,
   calculateValuationSummary,
   formatValuationAxisTick,
   hasValuationHistory,
@@ -60,5 +61,19 @@ describe("benchmark valuation", () => {
       { date: "2026-08-02", pb: 0.89 },
       { date: "2026-08-03", pb: 0.9 },
     ], "pb")).toBe(true);
+  });
+
+  test("pairs dividend yield and risk-free rate only on exact dates", () => {
+    const result = calculateRiskFreeComparison([
+      { date: "2026-08-19", dividendYield: 4.1, riskFreeRate: null },
+      { date: "2026-08-20", dividendYield: 4.2, riskFreeRate: 0 },
+      { date: "2026-08-21", dividendYield: 4.16, riskFreeRate: 1.68 },
+    ], "all");
+    expect(result.points[0]).toEqual({ date: "2026-08-20", dividendYield: 4.2, riskFreeRate: 0, difference: 4.2, ratio: null });
+    expect(result.points[1]).toMatchObject({ date: "2026-08-21", dividendYield: 4.16, riskFreeRate: 1.68 });
+    expect(result.points[1]?.difference).toBeCloseTo(2.48, 8);
+    expect(result.points[1]?.ratio).toBeCloseTo(4.16 / 1.68, 8);
+    expect(result.latest?.difference).toBeCloseTo(2.48, 8);
+    expect(result.latest?.ratio).toBeCloseTo(2.48, 2);
   });
 });

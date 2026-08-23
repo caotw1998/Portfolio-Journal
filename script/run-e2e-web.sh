@@ -9,6 +9,7 @@ if [[ -z "$DATABASE_URL" ]]; then
 fi
 export DATABASE_URL
 export PORT=3100
+export HOSTNAME=127.0.0.1
 export PRIVATE_ACCESS_MODE=tailscale
 export TAILSCALE_ALLOWED_LOGIN=e2e@example.com
 export APP_ORIGIN=http://127.0.0.1:3100

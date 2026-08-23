@@ -14,6 +14,7 @@
     "test:e2e": "playwright test",
     "db:export:data": "node script/export-dev-database.js",
     "db:import:data": "node script/import-dev-database.js",
+    "db:import:csi-dividend-valuations": "node script/import-csi-dividend-valuations.mjs",
     "db:bootstrap": "node script/bootstrap-workspace.js",
     "db:generate": "prisma generate",
     "db:migrate:dev": "prisma migrate dev",
@@ -31,7 +32,8 @@
     "echarts-for-react": "^3.0.6",
     "next": "16.2.12",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.0",

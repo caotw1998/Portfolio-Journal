@@ -93,6 +93,7 @@ services:
     environment:
       SYNC_WORKER_TOKEN: ${SYNC_WORKER_TOKEN}
       SYNC_WORKER_ENDPOINT: http://app:3000/api/internal/sync-jobs/run
+      SYNC_DAILY_VALUATION_ENDPOINT: http://app:3000/api/internal/benchmark-valuations/sync
     depends_on:
       app:
         condition: service_healthy

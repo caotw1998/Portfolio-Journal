@@ -633,6 +633,7 @@ model BenchmarkValuationSnapshot {
   peTtm                  Decimal? @db.Decimal(20, 8)
   pb                     Decimal? @db.Decimal(20, 8)
   dividendYield          Decimal? @db.Decimal(20, 8)
+  riskFreeRate           Decimal? @db.Decimal(20, 8)
   source                 String
   sourceUrl              String?
   peSource               String?
@@ -641,6 +642,8 @@ model BenchmarkValuationSnapshot {
   pbSourceUrl            String?
   dividendYieldSource    String?
   dividendYieldSourceUrl String?
+  riskFreeRateSource     String?
+  riskFreeRateSourceUrl  String?
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
