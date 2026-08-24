@@ -190,8 +190,10 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
     { date: new Date("2015-06-12T00:00:00Z"), closeValue: 5300, source: "public_market" },
     { date: new Date("2019-01-04T00:00:00Z"), closeValue: 2900, source: "public_market" },
     { date: new Date("2021-02-18T00:00:00Z"), closeValue: 5800, source: "public_market" },
+    { date: new Date("2024-01-01T00:00:00Z"), closeValue: 3100, source: "public_market" },
     { date: new Date("2024-09-24T00:00:00Z"), closeValue: 3300, source: "public_market" },
     { date: new Date("2025-08-01T00:00:00Z"), closeValue: 3500, source: "public_market" },
+    { date: new Date("2025-12-01T00:00:00Z"), closeValue: 3650, source: "public_market" },
     { date: new Date("2026-07-01T00:00:00Z"), closeValue: 3900, source: "public_market" },
   ] }, valuationSnapshots: { create: benchmarkValuations }, constituentSnapshots: { create: [
     { effectiveDate: new Date("2026-07-31T00:00:00Z"), coverage: "top10", totalWeightPercent: 28.5, source: "csindex", constituents: { create: [
@@ -245,6 +247,22 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   const valuationChart = valuationSection.getByTestId("benchmark-valuation-chart");
   const valuationRangeControls = valuationSection.getByTestId("benchmark-valuation-range-controls-row");
   const indexPerformanceLegend = valuationSection.getByTestId("index-performance-legend");
+  const hoverValuationTooltipWithValues = async (requiredRows: string[]) => {
+    const canvas = valuationSection.locator("canvas").first();
+    await canvas.scrollIntoViewIfNeeded();
+    const canvasBox = await canvas.boundingBox();
+    expect(canvasBox).not.toBeNull();
+    const tooltip = valuationSection.locator(".benchmark-valuation-tooltip");
+    let lastContent = "";
+    for (let index = 0; index <= 24; index += 1) {
+      const x = canvasBox!.x + 36 + (canvasBox!.width - 72) * (index / 24);
+      await page.mouse.move(x, canvasBox!.y + canvasBox!.height * 0.55);
+      if (!(await tooltip.isVisible())) continue;
+      lastContent = await tooltip.textContent() ?? "";
+      if (requiredRows.every((row) => lastContent.includes(row)) && !lastContent.includes("无同日数据")) return tooltip;
+    }
+    throw new Error(`未找到包含全部同日曲线值的 tooltip：${lastContent}`);
+  };
   const [valuationChartBox, valuationRangeControlsBox] = await Promise.all([valuationChart.boundingBox(), valuationRangeControls.boundingBox()]);
   expect(valuationChartBox).not.toBeNull();
   expect(valuationRangeControlsBox).not.toBeNull();
@@ -253,6 +271,7 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await indexPerformanceLegend.click();
   await expect(indexPerformanceLegend).toHaveAttribute("aria-pressed", "true");
   await expect(valuationChart).toHaveAttribute("data-index-performance-visible", "true");
+  await expect(await hoverValuationTooltipWithValues(["市盈率（PE）", "指数业绩"])).toContainText("历史分位");
   await valuationSection.getByRole("button", { name: "估值时间区间：近3年" }).click();
   await expect(valuationSection.getByRole("menuitem", { name: "近5年" })).toBeVisible();
   await valuationSection.getByRole("menuitem", { name: "近5年" }).click();
@@ -265,6 +284,8 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await riskFreeRateLegend.click();
   await expect(riskFreeRateLegend).toHaveAttribute("aria-pressed", "true");
   await expect(valuationSection.getByTestId("benchmark-valuation-chart")).toHaveAttribute("data-risk-free-rate-visible", "true");
+  await valuationSection.getByTestId("index-performance-legend").click();
+  await expect(await hoverValuationTooltipWithValues(["股息率", "10年期无风险利率", "指数业绩"])).toContainText("历史分位");
   await expect(valuationSection.getByText(/估值分位/).first()).toBeVisible();
   await valuationSection.getByRole("button", { name: /股息率和无风险利率/ }).click();
   await expect(valuationSection.getByTestId("risk-free-rate-legend")).toHaveCount(0);
@@ -277,9 +298,8 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
   await expect(valuationSection.getByTestId("index-performance-legend")).toHaveAttribute("aria-pressed", "false");
   await valuationSection.getByTestId("index-performance-legend").click();
   await expect(valuationSection.getByTestId("index-performance-legend")).toHaveAttribute("aria-pressed", "true");
+  await hoverValuationTooltipWithValues(["股息率除以无风险利率", "指数业绩"]);
   await page.screenshot({ path: "/tmp/benchmark-valuation-desktop.png", fullPage: true });
-  await valuationSection.getByTestId("index-performance-legend").click();
-  await expect(valuationSection.getByTestId("index-performance-legend")).toHaveAttribute("aria-pressed", "false");
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
   const mobileValuationCanvas = valuationSection.locator("canvas").first();
@@ -291,6 +311,9 @@ test("search, follow, inspect and compare a fund with an index", async ({ page }
     const valuationTooltip = valuationSection.locator(".benchmark-valuation-tooltip");
     await expect(valuationTooltip).toBeVisible();
     await expect(valuationTooltip).toContainText("历史分位");
+    await expect(valuationTooltip).toContainText("股息率除以无风险利率");
+    await expect(valuationTooltip).toContainText("指数业绩");
+    await expect(valuationTooltip).not.toContainText("无同日数据");
     const tooltipBox = await valuationTooltip.boundingBox();
     expect(tooltipBox).not.toBeNull();
     expect(tooltipBox!.x).toBeGreaterThanOrEqual(0);

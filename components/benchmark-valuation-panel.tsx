@@ -106,11 +106,21 @@ function formatPointValue(value: number, metric: PanelMetric, comparisonMode: Ri
   return formatValue(value, metric);
 }
 
+function tooltipMarker(color: string) {
+  return `<span style="display:inline-block;margin-right:4px;border-radius:50%;width:10px;height:10px;background-color:${color}"></span>`;
+}
+
 function tooltipFormatter(
   params: unknown,
   primarySeriesName: string,
   metric: PanelMetric,
   comparisonMode: RiskFreeComparisonMode,
+  auxiliary: {
+    riskFreeRateVisible: boolean;
+    performanceVisible: boolean;
+    riskFreeRateByDate: ReadonlyMap<string, number>;
+    performanceByDate: ReadonlyMap<string, number>;
+  },
 ) {
   const entries = (Array.isArray(params) ? params : [params]) as Array<{
     axisValue?: unknown;
@@ -118,34 +128,36 @@ function tooltipFormatter(
     seriesName?: unknown;
     value?: unknown;
   }>;
-  const firstValue = Array.isArray(entries[0]?.value) ? entries[0].value : [];
-  const date = typeof entries[0]?.axisValue === "string"
-    ? entries[0].axisValue
-    : typeof firstValue[0] === "string" ? firstValue[0] : "";
+  const primaryEntry = entries.find((entry) => entry.seriesName === primarySeriesName) ?? entries[0];
+  const primaryValues = Array.isArray(primaryEntry?.value) ? primaryEntry.value : [];
+  const date = typeof primaryValues[0] === "string"
+    ? primaryValues[0]
+    : typeof primaryEntry?.axisValue === "string" ? primaryEntry.axisValue : "";
   const lines = [`<div style="margin-bottom:6px;font-weight:600">${date}</div>`];
-  for (const entry of entries) {
-    const values = Array.isArray(entry.value) ? entry.value : [];
-    const value = typeof values[1] === "number" ? values[1] : null;
-    if (value === null) continue;
-    const seriesName = typeof entry.seriesName === "string" ? entry.seriesName : "";
-    const marker = typeof entry.marker === "string" ? entry.marker : "";
-    const formatted = seriesName === INDEX_PERFORMANCE_SERIES
-      ? formatPercent(value)
-      : seriesName === RISK_FREE_RATE_SERIES ? `${value.toFixed(2)}%` : formatPointValue(value, metric, comparisonMode);
-    lines.push(`<div>${marker}${seriesName} ${formatted}</div>`);
-    if (seriesName !== primarySeriesName) continue;
-    const percentile = typeof values[2] === "number" ? values[2] : null;
-    const valuationPercentile = typeof values[3] === "number" ? values[3] : null;
-    const band = typeof values[4] === "string" ? values[4] : null;
+  const primaryValue = typeof primaryValues[1] === "number" ? primaryValues[1] : null;
+  if (primaryValue !== null) {
+    const marker = typeof primaryEntry?.marker === "string" ? primaryEntry.marker : tooltipMarker("#276c9b");
+    lines.push(`<div>${marker}${primarySeriesName} ${formatPointValue(primaryValue, metric, comparisonMode)}</div>`);
+    const percentile = typeof primaryValues[2] === "number" ? primaryValues[2] : null;
+    const valuationPercentile = typeof primaryValues[3] === "number" ? primaryValues[3] : null;
+    const band = typeof primaryValues[4] === "string" ? primaryValues[4] : null;
     if (percentile === null) {
       lines.push("<div style=\"margin-left:18px;opacity:.72\">历史分位：样本不足</div>");
-      continue;
+    } else {
+      lines.push(`<div style="margin-left:18px;opacity:.82">历史分位 ${percentile.toFixed(2)}%</div>`);
+      if (valuationPercentile !== null && Math.abs(valuationPercentile - percentile) > 0.005) {
+        lines.push(`<div style="margin-left:18px;opacity:.82">估值分位 ${valuationPercentile.toFixed(2)}%</div>`);
+      }
+      if (band) lines.push(`<div style="margin-left:18px;opacity:.82">估值档位 ${band}</div>`);
     }
-    lines.push(`<div style="margin-left:18px;opacity:.82">历史分位 ${percentile.toFixed(2)}%</div>`);
-    if (valuationPercentile !== null && Math.abs(valuationPercentile - percentile) > 0.005) {
-      lines.push(`<div style="margin-left:18px;opacity:.82">估值分位 ${valuationPercentile.toFixed(2)}%</div>`);
-    }
-    if (band) lines.push(`<div style="margin-left:18px;opacity:.82">估值档位 ${band}</div>`);
+  }
+  if (auxiliary.riskFreeRateVisible) {
+    const value = auxiliary.riskFreeRateByDate.get(date);
+    lines.push(`<div>${tooltipMarker("#6f7c55")}${RISK_FREE_RATE_SERIES} ${value === undefined ? "--（无同日数据）" : `${value.toFixed(2)}%`}</div>`);
+  }
+  if (auxiliary.performanceVisible) {
+    const value = auxiliary.performanceByDate.get(date);
+    lines.push(`<div>${tooltipMarker("#b7791f")}${INDEX_PERFORMANCE_SERIES} ${value === undefined ? "--（无同日数据）" : formatPercent(value)}</div>`);
   }
   return lines.join("");
 }
@@ -253,6 +265,8 @@ export function BenchmarkValuationPanel({
       point.valuationPercentile,
       point.band,
     ]);
+    const riskFreeRateByDate = new Map(riskFreeRatePoints);
+    const performanceByDate = new Map(performancePoints.map((point) => [point.date, point.returnPercent]));
     const series: NonNullable<EChartsOption["series"]> = [{
       name: primarySeriesName,
       type: "line",
@@ -269,6 +283,7 @@ export function BenchmarkValuationPanel({
         showSymbol: false,
         lineStyle: { width: 2, color: "#6f7c55", type: "dashed" },
         itemStyle: { color: "#6f7c55" },
+        tooltip: { show: false },
         data: riskFreeRatePoints,
       });
     }
@@ -280,6 +295,7 @@ export function BenchmarkValuationPanel({
         showSymbol: false,
         lineStyle: { width: 2, color: "#b7791f" },
         itemStyle: { color: "#b7791f" },
+        tooltip: { show: false },
         data: performancePoints.map((point) => [point.date, point.returnPercent]),
       });
     }
@@ -293,7 +309,12 @@ export function BenchmarkValuationPanel({
         appendToBody: false,
         axisPointer: { type: "line", snap: true },
         extraCssText: "max-width:min(280px,calc(100vw - 24px));white-space:normal;overflow-wrap:anywhere;line-height:1.55;",
-        formatter: (params: unknown) => tooltipFormatter(params, primarySeriesName, metric, comparisonMode),
+        formatter: (params: unknown) => tooltipFormatter(params, primarySeriesName, metric, comparisonMode, {
+          riskFreeRateVisible: hasRiskFreeRate && activeAuxiliaryVisibility.riskFreeRate,
+          performanceVisible: hasPerformance && activeAuxiliaryVisibility.performance,
+          riskFreeRateByDate,
+          performanceByDate,
+        }),
       },
       xAxis: { type: "time", axisLabel: { color: "#5e675d", hideOverlap: true }, axisLine: { lineStyle: { color: "#d7c8af" } }, splitLine: { show: false } },
       yAxis: [
