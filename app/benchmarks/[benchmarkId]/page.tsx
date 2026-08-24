@@ -44,7 +44,7 @@ export default async function BenchmarkDetailPage({ params }: { params: Promise<
             {benchmark.dataBasis === "proxy_etf" ? <p className="mt-3 border-l-2 border-[var(--warm-highlight)] bg-card px-4 py-3 text-sm leading-6 text-[#9a4f2a]">精确指数历史不足，当前曲线采用红利低波50ETF南方（515450）前复权行情，仅作跟踪表现代理，不等同于指数原始点位。</p> : null}
             {benchmark.seriesType === "total_return" ? <p className="mt-3 border-l-2 border-border bg-card px-4 py-3 text-xs leading-5 text-muted-foreground">全收益指数按理论现金分红再投资计算；ETF展示的是基金净值分红再投资，仍会受建仓时点、费用、跟踪偏离与组合执行影响，因此两条曲线不要求完全重合。比较时系统自动使用双方共同日期。</p> : null}
           </div>
-          <div id="benchmark-valuation" className="scroll-mt-20"><BenchmarkValuationPanel points={benchmark.valuationSnapshots} lastSyncAt={benchmark.valuationLastSyncAt} lastSyncError={benchmark.valuationLastSyncError} /></div>
+          <div id="benchmark-valuation" className="scroll-mt-20"><BenchmarkValuationPanel benchmarkName={benchmark.name} points={benchmark.valuationSnapshots} pricePoints={benchmark.series.points.map((point) => ({ date: point.date, value: point.value }))} lastSyncAt={benchmark.valuationLastSyncAt} lastSyncError={benchmark.valuationLastSyncError} /></div>
           <section id="benchmark-performance" className="min-w-0 scroll-mt-20 overflow-hidden border border-border bg-card p-4 lg:p-6">
             <div className="flex items-start justify-between gap-3"><h2 className="text-xl font-semibold lg:text-2xl">业绩与风险</h2><p className="font-mono text-xs text-muted-foreground">{benchmark.pointCount} 个观测点</p></div>
             <div className="mt-3 min-w-0">

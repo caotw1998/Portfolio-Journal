@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  calculateBenchmarkPerformance,
   calculateRiskFreeComparison,
   calculateValuationSummary,
   formatValuationAxisTick,
@@ -36,6 +37,9 @@ describe("benchmark valuation", () => {
     const dividend = calculateValuationSummary(pePoints, "dividendYield", "all");
     expect(pe).toMatchObject({ current: 100, percentile: 100, valuationPercentile: 100, band: "极高估", observationCount: 100 });
     expect(dividend).toMatchObject({ current: 100, percentile: 100, valuationPercentile: 0, band: "极低估", observationCount: 100 });
+    expect(pe.points[49]).toMatchObject({ value: 50, percentile: 50, valuationPercentile: 50, band: "适中" });
+    expect(dividend.points[49]).toMatchObject({ value: 50, percentile: 50, valuationPercentile: 50, band: "适中" });
+    expect(dividend.points[79]).toMatchObject({ value: 80, percentile: 80, valuationPercentile: 20, band: "较低估" });
   });
 
   test("does not assign a valuation band with fewer than 20 observations", () => {
@@ -46,6 +50,7 @@ describe("benchmark valuation", () => {
       dividendYield: null,
     })), "pe", "3y");
     expect(summary).toMatchObject({ observationCount: 19, band: null, percentile: null, valuationPercentile: null });
+    expect(summary.points.every((point) => point.percentile === null && point.band === null)).toBe(true);
   });
 
   test("formats valuation-axis ticks without exposing floating-point boundary noise", () => {
@@ -75,5 +80,30 @@ describe("benchmark valuation", () => {
     expect(result.points[1]?.ratio).toBeCloseTo(4.16 / 1.68, 8);
     expect(result.latest?.difference).toBeCloseTo(2.48, 8);
     expect(result.latest?.ratio).toBeCloseTo(2.48, 2);
+  });
+
+  test("calculates reversed valuation bands for difference and ratio points", () => {
+    const result = calculateRiskFreeComparison(Array.from({ length: 20 }, (_, index) => ({
+      date: `2026-07-${String(index + 1).padStart(2, "0")}`,
+      dividendYield: index + 2,
+      riskFreeRate: 1,
+    })), "all");
+    expect(result.summaries.difference).toMatchObject({ current: 20, percentile: 100, valuationPercentile: 0, band: "极低估", observationCount: 20 });
+    expect(result.summaries.ratio).toMatchObject({ current: 21, percentile: 100, valuationPercentile: 0, band: "极低估", observationCount: 20 });
+    expect(result.summaries.difference.points[0]).toMatchObject({ value: 1, percentile: 5, valuationPercentile: 95, band: "极高估" });
+  });
+
+  test("normalizes benchmark performance from the first trading day in the selected range", () => {
+    const result = calculateBenchmarkPerformance([
+      { date: "2023-08-20", value: 80 },
+      { date: "2023-08-21", value: 100 },
+      { date: "2024-08-21", value: 110 },
+      { date: "2026-08-21", value: 125 },
+      { date: "2026-08-22", value: 130 },
+    ], "3y", "2026-08-21");
+    expect(result.map((point) => point.date)).toEqual(["2023-08-21", "2024-08-21", "2026-08-21"]);
+    expect(result[0]?.returnPercent).toBe(0);
+    expect(result[1]?.returnPercent).toBeCloseTo(10, 8);
+    expect(result[2]?.returnPercent).toBeCloseTo(25, 8);
   });
 });

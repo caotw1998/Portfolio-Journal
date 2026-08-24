@@ -22,6 +22,14 @@ export type BenchmarkValuationPoint = {
 };
 
 export type RiskFreeComparisonMode = "difference" | "ratio";
+export type BenchmarkValuationSeriesPoint = {
+  date: string;
+  value: number;
+  percentile: number | null;
+  valuationPercentile: number | null;
+  band: BenchmarkValuationBand | null;
+};
+export type BenchmarkPerformancePoint = { date: string; value: number; returnPercent: number };
 
 const CSINDEX_PE_URL = "https://www.csindex.com.cn/csindex-home/perf/indexCsiDsPe";
 const CSINDEX_CURRENT_URL = "https://www.csindex.com.cn/csindex-home/data-service/indexValuation";
@@ -111,13 +119,45 @@ function valuationBand(percentile: number): BenchmarkValuationBand {
   return "极高估";
 }
 
+function percentileOf(sorted: number[], value: number) {
+  return sorted.filter((candidate) => candidate <= value).length / sorted.length * 100;
+}
+
+function summarizeValues(
+  available: Array<{ date: string; value: number }>,
+  reverseValuation: boolean,
+) {
+  const values = available.map((point) => point.value).sort((left, right) => left - right);
+  const observationCount = values.length;
+  const average = observationCount ? values.reduce((sum, value) => sum + value, 0) / observationCount : null;
+  const hasEnoughObservations = observationCount >= 20;
+  const points: BenchmarkValuationSeriesPoint[] = available.map((point) => {
+    if (!hasEnoughObservations) return { ...point, percentile: null, valuationPercentile: null, band: null };
+    const percentile = percentileOf(values, point.value);
+    const valuationPercentile = reverseValuation ? 100 - percentile : percentile;
+    return { ...point, percentile, valuationPercentile, band: valuationBand(valuationPercentile) };
+  });
+  const latest = points.at(-1) ?? null;
+  return {
+    points,
+    current: latest?.value ?? null,
+    currentDate: latest?.date ?? null,
+    average,
+    percentile: latest?.percentile ?? null,
+    valuationPercentile: latest?.valuationPercentile ?? null,
+    band: latest?.band ?? null,
+    observationCount,
+    thresholds: hasEnoughObservations ? [0.2, 0.4, 0.6, 0.8].map((value) => quantile(values, value)!) : [] as number[],
+  };
+}
+
 export function calculateValuationSummary(points: BenchmarkValuationPoint[], metric: BenchmarkValuationMetric, range: BenchmarkValuationRange) {
   const available = points
     .map((point) => ({ date: point.date, value: metricValue(point, metric) }))
     .filter((point): point is { date: string; value: number } => typeof point.value === "number" && Number.isFinite(point.value) && point.value >= 0)
     .sort((left, right) => left.date.localeCompare(right.date));
   const latest = available.at(-1);
-  if (!latest) return { points: [], current: null, currentDate: null, average: null, percentile: null, valuationPercentile: null, band: null, observationCount: 0, thresholds: [] as number[] };
+  if (!latest) return summarizeValues([], metric === "dividendYield");
   let filtered = available;
   if (range !== "all") {
     const cutoff = new Date(`${latest.date}T00:00:00Z`);
@@ -125,23 +165,7 @@ export function calculateValuationSummary(points: BenchmarkValuationPoint[], met
     const cutoffText = cutoff.toISOString().slice(0, 10);
     filtered = available.filter((point) => point.date >= cutoffText);
   }
-  const values = filtered.map((point) => point.value).sort((left, right) => left - right);
-  const observationCount = values.length;
-  const average = observationCount ? values.reduce((sum, value) => sum + value, 0) / observationCount : null;
-  if (observationCount < 20) return { points: filtered, current: latest.value, currentDate: latest.date, average, percentile: null, valuationPercentile: null, band: null, observationCount, thresholds: [] as number[] };
-  const percentile = values.filter((value) => value <= latest.value).length / observationCount * 100;
-  const valuationPercentile = metric === "dividendYield" ? 100 - percentile : percentile;
-  return {
-    points: filtered,
-    current: latest.value,
-    currentDate: latest.date,
-    average,
-    percentile,
-    valuationPercentile,
-    band: valuationBand(valuationPercentile),
-    observationCount,
-    thresholds: [0.2, 0.4, 0.6, 0.8].map((value) => quantile(values, value)!),
-  };
+  return summarizeValues(filtered, metric === "dividendYield");
 }
 
 export function calculateRiskFreeComparison(points: BenchmarkValuationPoint[], range: BenchmarkValuationRange) {
@@ -161,12 +185,38 @@ export function calculateRiskFreeComparison(points: BenchmarkValuationPoint[], r
     })
     .sort((left, right) => left.date.localeCompare(right.date));
   const latest = available.at(-1) ?? null;
-  if (!latest) return { points: [], latest: null };
-  if (range === "all") return { points: available, latest };
-  const cutoff = new Date(`${latest.date}T00:00:00Z`);
-  cutoff.setUTCFullYear(cutoff.getUTCFullYear() - Number.parseInt(range, 10));
-  const cutoffText = cutoff.toISOString().slice(0, 10);
-  return { points: available.filter((point) => point.date >= cutoffText), latest };
+  let filtered = available;
+  if (latest && range !== "all") {
+    const cutoff = new Date(`${latest.date}T00:00:00Z`);
+    cutoff.setUTCFullYear(cutoff.getUTCFullYear() - Number.parseInt(range, 10));
+    const cutoffText = cutoff.toISOString().slice(0, 10);
+    filtered = available.filter((point) => point.date >= cutoffText);
+  }
+  const difference = summarizeValues(filtered.map((point) => ({ date: point.date, value: point.difference })), true);
+  const ratio = summarizeValues(filtered.flatMap((point) => point.ratio === null ? [] : [{ date: point.date, value: point.ratio }]), true);
+  return { points: filtered, latest: filtered.at(-1) ?? null, summaries: { difference, ratio } };
+}
+
+export function calculateBenchmarkPerformance(
+  points: Array<{ date: string; value: number }>,
+  range: BenchmarkValuationRange,
+  endDate: string | null,
+): BenchmarkPerformancePoint[] {
+  if (!endDate) return [];
+  const available = points
+    .filter((point) => point.date <= endDate && Number.isFinite(point.value) && point.value > 0)
+    .sort((left, right) => left.date.localeCompare(right.date));
+  if (!available.length) return [];
+  let filtered = available;
+  if (range !== "all") {
+    const cutoff = new Date(`${endDate}T00:00:00Z`);
+    cutoff.setUTCFullYear(cutoff.getUTCFullYear() - Number.parseInt(range, 10));
+    const cutoffText = cutoff.toISOString().slice(0, 10);
+    filtered = available.filter((point) => point.date >= cutoffText);
+  }
+  const base = filtered[0]?.value;
+  if (!base) return [];
+  return filtered.map((point) => ({ ...point, returnPercent: (point.value / base - 1) * 100 }));
 }
 
 async function requestJson(url: URL, fetchImpl: typeof fetch) {
