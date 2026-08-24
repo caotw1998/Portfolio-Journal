@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { evaluatePrivateAccess, SECURITY_HEADERS } from "@/lib/deployment/private-access";
 
+const INTERNAL_WORKER_PATHS = new Set([
+  "/api/internal/sync-jobs/run",
+  "/api/internal/benchmark-valuations/sync",
+]);
+
+export function isInternalWorkerPath(pathname: string) {
+  return INTERNAL_WORKER_PATHS.has(pathname);
+}
+
 export function proxy(request: NextRequest) {
-  if (request.nextUrl.pathname === "/api/internal/sync-jobs/run") {
+  if (isInternalWorkerPath(request.nextUrl.pathname)) {
     return NextResponse.next();
   }
   const decision = evaluatePrivateAccess({
