@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS base
+FROM node:25-bookworm-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370 AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 WORKDIR /app
@@ -29,7 +29,7 @@ COPY script/import-csi-dividend-valuations.mjs ./script/import-csi-dividend-valu
 RUN pnpm exec prisma generate
 CMD ["sh", "-c", "node script/deploy-check.js && pnpm exec prisma migrate deploy && node script/bootstrap-workspace.js"]
 
-FROM node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS runner
+FROM node:25-bookworm-slim@sha256:81db02c4b671288a03915da9534dbd54f96d0e7c24d80ccc54f5b36b2e684370 AS runner
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV HOSTNAME=0.0.0.0
